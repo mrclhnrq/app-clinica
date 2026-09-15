@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import {
@@ -51,7 +50,6 @@ export default function ClientesScreen() {
           <ClientList
             onAdd={() => setScreen('add')}
             onOpen={() => setScreen('detail')}
-            onList={() => setScreen('list')}
           />
         )}
         {screen === 'detail' && (
@@ -96,11 +94,9 @@ function Header({
 function ClientList({
   onAdd,
   onOpen,
-  onList,
 }: {
   onAdd: () => void;
   onOpen: () => void;
-  onList: () => void;
 }) {
   return (
     <>
@@ -133,7 +129,6 @@ function ClientList({
           <Text style={styles.countText}>Mostrando 4 de 120 clientes cadastrados</Text>
         </View>
       </View>
-      <BottomNav onHome={() => router.push('/')} onOrders={() => router.push('/explore')} onClients={onList} />
     </>
   );
 }
@@ -206,9 +201,13 @@ function ClientForm({ mode, onBack }: { mode: 'add' | 'edit'; onBack: () => void
 
   return (
     <>
-      <Pressable onPress={onBack} style={styles.formTitleWrap}>
-        <Text style={styles.formTitle}>{isEdit ? 'Editar Cliente' : 'Novo Cliente'}</Text>
-      </Pressable>
+      {isEdit ? (
+        <Header title="Editar Cliente" titleSize={26} onBack={onBack} />
+      ) : (
+        <Pressable onPress={onBack} style={styles.formTitleWrap}>
+          <Text style={styles.formTitle}>Novo Cliente</Text>
+        </Pressable>
+      )}
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
         <FormInput
           label="Nome Completo"
@@ -273,6 +272,14 @@ function ClientForm({ mode, onBack }: { mode: 'add' | 'edit'; onBack: () => void
             }
             style={[styles.input, styles.textArea, isEdit && styles.inputValue]}
           />
+        </View>
+        <View style={styles.formActionRow}>
+          <Pressable onPress={onBack} style={styles.saveButton}>
+            <Text style={styles.saveButtonText}>Salvar</Text>
+          </Pressable>
+          <Pressable onPress={onBack} style={styles.cancelOutlineButton}>
+            <Text style={styles.cancelOutlineText}>Cancelar</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </>
@@ -395,85 +402,11 @@ function HistoryCard({ service, order, amount }: { service: string; order: strin
   );
 }
 
-function BottomNav({
-  onHome,
-  onOrders,
-  onClients,
-}: {
-  onHome: () => void;
-  onOrders: () => void;
-  onClients: () => void;
-}) {
-  const items = [
-    { label: 'Inicio', icon: HomeIcon, active: false, onPress: onHome },
-    { label: 'Ordens', icon: OrdersIcon, active: false, onPress: onOrders },
-    { label: 'Clientes', icon: PeopleIcon, active: true, onPress: onClients },
-    { label: 'Mais', icon: MenuIcon, active: false, onPress: onOrders },
-  ];
-
-  return (
-    <View style={styles.bottomNav}>
-      {items.map((item) => {
-        const color = item.active ? palette.primary : palette.subtle;
-        const Icon = item.icon;
-        return (
-          <Pressable key={item.label} onPress={item.onPress} style={styles.bottomNavItem}>
-            <Icon color={color} />
-            <Text style={[styles.bottomNavText, item.active && styles.bottomNavTextActive]}>{item.label}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 function SearchIcon() {
   return (
     <View style={styles.searchIcon}>
       <View style={styles.searchCircle} />
       <View style={styles.searchHandle} />
-    </View>
-  );
-}
-
-function HomeIcon({ color }: { color: string }) {
-  return (
-    <View style={styles.navIcon}>
-      <View style={[styles.homeRoof, { borderBottomColor: color }]} />
-      <View style={[styles.homeBody, { borderColor: color }]}>
-        <View style={[styles.homeDoor, { borderColor: color }]} />
-      </View>
-    </View>
-  );
-}
-
-function OrdersIcon({ color }: { color: string }) {
-  return (
-    <View style={[styles.orderIcon, { borderColor: color }]}>
-      <View style={[styles.orderLine, { backgroundColor: color }]} />
-      <View style={[styles.orderLine, { backgroundColor: color }]} />
-      <View style={[styles.orderLineShort, { backgroundColor: color }]} />
-    </View>
-  );
-}
-
-function PeopleIcon({ color }: { color: string }) {
-  return (
-    <View style={styles.navIcon}>
-      <View style={[styles.personCircleLarge, { borderColor: color }]} />
-      <View style={[styles.personShoulderLarge, { borderColor: color }]} />
-      <View style={[styles.personCircleSmall, { borderColor: color }]} />
-      <View style={[styles.personShoulderSmall, { borderColor: color }]} />
-    </View>
-  );
-}
-
-function MenuIcon({ color }: { color: string }) {
-  return (
-    <View style={styles.menuIcon}>
-      <View style={[styles.menuLine, { backgroundColor: color }]} />
-      <View style={[styles.menuLine, { backgroundColor: color }]} />
-      <View style={[styles.menuLine, { backgroundColor: color }]} />
     </View>
   );
 }
@@ -652,136 +585,6 @@ const styles = StyleSheet.create({
     fontFamily,
     fontSize: 13,
     color: palette.subtle,
-  },
-  bottomNav: {
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: palette.line,
-    paddingTop: 10,
-    paddingBottom: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  bottomNavItem: {
-    alignItems: 'center',
-    gap: 3,
-  },
-  bottomNavText: {
-    fontFamily,
-    fontSize: 11,
-    color: palette.subtle,
-  },
-  bottomNavTextActive: {
-    color: palette.primary,
-    fontWeight: '700',
-  },
-  navIcon: {
-    width: 24,
-    height: 24,
-  },
-  homeRoof: {
-    position: 'absolute',
-    left: 4,
-    top: 2,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderBottomWidth: 8,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-  },
-  homeBody: {
-    position: 'absolute',
-    left: 4,
-    top: 10,
-    width: 16,
-    height: 12,
-    borderWidth: 1.8,
-    borderTopWidth: 0,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  homeDoor: {
-    width: 6,
-    height: 7,
-    borderWidth: 1.8,
-    borderBottomWidth: 0,
-  },
-  orderIcon: {
-    width: 16,
-    height: 20,
-    borderWidth: 1.8,
-    borderRadius: 2,
-    paddingHorizontal: 3,
-    paddingTop: 5,
-    gap: 3,
-  },
-  orderLine: {
-    width: 8,
-    height: 2,
-    borderRadius: 2,
-  },
-  orderLineShort: {
-    width: 5,
-    height: 2,
-    borderRadius: 2,
-  },
-  personCircleLarge: {
-    position: 'absolute',
-    left: 4,
-    top: 3,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1.8,
-  },
-  personShoulderLarge: {
-    position: 'absolute',
-    left: 1,
-    bottom: 2,
-    width: 14,
-    height: 8,
-    borderTopWidth: 1.8,
-    borderLeftWidth: 1.8,
-    borderRightWidth: 1.8,
-    borderTopLeftRadius: 7,
-    borderTopRightRadius: 7,
-  },
-  personCircleSmall: {
-    position: 'absolute',
-    right: 3,
-    top: 7,
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    borderWidth: 1.8,
-  },
-  personShoulderSmall: {
-    position: 'absolute',
-    right: 1,
-    bottom: 2,
-    width: 12,
-    height: 7,
-    borderTopWidth: 1.8,
-    borderLeftWidth: 1.8,
-    borderRightWidth: 1.8,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-  },
-  menuIcon: {
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    gap: 4,
-  },
-  menuLine: {
-    width: 18,
-    height: 2,
-    borderRadius: 2,
   },
   detailHeaderActions: {
     flexDirection: 'row',
@@ -972,7 +775,7 @@ const styles = StyleSheet.create({
   formContent: {
     paddingHorizontal: 20,
     gap: 14,
-    paddingBottom: 16,
+    paddingBottom: 24,
   },
   inputGroup: {
     flex: 1,
@@ -1069,6 +872,39 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     fontSize: 14,
     paddingTop: 13,
+  },
+  formActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingTop: 2,
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: palette.primary,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    fontFamily,
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cancelOutlineButton: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderColor: palette.primary,
+    borderWidth: 2,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'center',
+  },
+  cancelOutlineText: {
+    fontFamily,
+    color: palette.primary,
+    fontSize: 16,
+    fontWeight: '700',
   },
   sheetScreen: {
     flex: 1,
