@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { Card } from "../../components/Card";
 import { colors, spacing, radius } from "../../constants/theme";
@@ -39,7 +40,13 @@ export default function Home() {
 
       <View style={styles.grid}>
         {menuItems.map((item) => (
-          <Card key={item.title} title={item.title} subtitle={item.subtitle} icon={item.icon} />
+          <Card
+            key={item.title}
+            title={item.title}
+            subtitle={item.subtitle}
+            icon={item.icon}
+            onPress={item.title === "Clientes" ? () => router.push("/clientes") : undefined}
+          />
         ))}
       </View>
     </ScrollView>

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import {
@@ -49,6 +50,7 @@ export default function ClientesScreen() {
         {screen === 'list' && (
           <ClientList
             onAdd={() => setScreen('add')}
+            onBack={() => router.push('/home')}
             onOpen={() => setScreen('detail')}
           />
         )}
@@ -93,15 +95,18 @@ function Header({
 
 function ClientList({
   onAdd,
+  onBack,
   onOpen,
 }: {
   onAdd: () => void;
+  onBack: () => void;
   onOpen: () => void;
 }) {
   return (
     <>
       <Header
         title="Clientes"
+        onBack={onBack}
         action={
           <Pressable onPress={onAdd} style={styles.addButton}>
             <Text style={styles.addButtonText}>+</Text>
