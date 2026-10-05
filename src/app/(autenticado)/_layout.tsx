@@ -46,6 +46,12 @@ export default function AutenticadoLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="funcionarios"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
