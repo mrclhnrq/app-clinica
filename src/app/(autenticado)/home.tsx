@@ -46,10 +46,12 @@ export default function Home() {
             subtitle={item.subtitle}
             icon={item.icon}
             onPress={
-              item.title === "Clientes"
+              item.icon === "people-outline"
                 ? () => router.push("/clientes")
-                : item.title === "Funcionários"
-                  ? () => router.push("/funcionarios")
+                : item.icon === "cut-outline"
+                  ? () => router.push("/servicos")
+                  : item.icon === "person-outline"
+                    ? () => router.push("/funcionarios")
                   : undefined
             }
           />
