@@ -46,6 +46,9 @@ export default function AutenticadoLayout() {
           ),
         }}
       />
+      <Tabs.Screen name="lembretes" options={{ href: null }} />
+      <Tabs.Screen name="lembrete-horario" options={{ href: null }} />
+      <Tabs.Screen name="lembrete-retorno" options={{ href: null }} />
     </Tabs>
   );
 }

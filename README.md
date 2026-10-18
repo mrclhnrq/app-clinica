@@ -25,6 +25,29 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Mensagens e lembretes
+
+As telas de mensagens usam a API Spring Boot do backend. Inicie o backend na
+pasta `backend/esteticaFernandaLima` com `.\mvnw.cmd spring-boot:run` e depois
+inicie o Expo:
+
+```bash
+npx expo start
+```
+
+O app usa `http://localhost:8080` no web e iOS, e
+`http://10.0.2.2:8080` no emulador Android. Para um celular físico, informe o
+IP da máquina que executa o backend antes de iniciar o Expo:
+
+```powershell
+$env:EXPO_PUBLIC_API_URL="http://192.168.0.10:8080"
+npx expo start
+```
+
+As rotas integradas são `/lembretes`, `/lembrete-horario` e
+`/lembrete-retorno`. O envio usa o endpoint do backend com canal `WHATSAPP`,
+que gera o conteúdo no servidor e registra o resultado no histórico.
+
 ## Get a fresh project
 
 When you're ready, run:

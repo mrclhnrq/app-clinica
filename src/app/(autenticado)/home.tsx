@@ -45,7 +45,13 @@ export default function Home() {
             title={item.title}
             subtitle={item.subtitle}
             icon={item.icon}
-            onPress={item.title === "Clientes" ? () => router.push("/clientes") : undefined}
+            onPress={
+              item.title === "Clientes"
+                ? () => router.push("/clientes")
+                : item.title === "Lembretes"
+                  ? () => router.push("/lembretes")
+                  : undefined
+            }
           />
         ))}
       </View>
