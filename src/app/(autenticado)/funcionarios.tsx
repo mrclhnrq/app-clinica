@@ -1,68 +1,138 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { employeeCpf, employeePayload, employeeRequest, ensureUniqueEmployee, type Employee, type EmployeeFormValues } from "../../services/funcionarios";
 
-type Screen = "list" | "detail" | "add" | "delete";
+type Screen = "list" | "detail" | "add" | "edit" | "delete";
 
-const employees = [
-  {
-    initials: "CS",
-    name: "Camila Soares",
-    status: "Ativo",
-    statusTone: "active",
-    role: "Fisioterapeuta Dermatofuncional",
-    email: "camila.soares@clinica.com.br",
-  },
-  {
-    initials: "RA",
-    name: "Rodrigo Alves",
-    status: "Ativo",
-    statusTone: "active",
-    role: "Medico Dermatologista",
-    email: "rodrigo.alves@clinica.com.br",
-  },
-  {
-    initials: "MT",
-    name: "Mariana Teixeira",
-    status: "Ferias",
-    statusTone: "away",
-    role: "Esteticista Senior",
-    email: "mariana.t@clinica.com.br",
-  },
-] as const;
+function notify(title: string, message: string) {
+  if (Platform.OS === "web") window.alert(`${title}\n${message}`);
+  else Alert.alert(title, message);
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Não foi possível concluir a operação.";
+}
+
+function initials(name: string) {
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+}
 
 export default function FuncionariosScreen() {
   const [screen, setScreen] = useState<Screen>("list");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selected, setSelected] = useState<Employee | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    if (screen !== "list") return;
+    const controller = new AbortController();
+    setLoading(true);
+    setListError("");
+    const timer = setTimeout(() => {
+      employeeRequest<Employee[]>(search.trim() ? `?busca=${encodeURIComponent(search.trim())}` : "", "GET", undefined, controller.signal)
+        .then(result => { if (!controller.signal.aborted) setEmployees(result); })
+        .catch(error => {
+          if (!controller.signal.aborted) { setEmployees([]); setListError(errorMessage(error)); }
+        })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [screen, search, revision]);
+
+  async function openEmployee(employee: Employee) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      setSelected(await employeeRequest<Employee>(`/${employee.idFuncionario}`));
+      setScreen("detail");
+    } catch (error) { notify("Erro ao carregar funcionário", errorMessage(error)); }
+    finally { pending.current = false; setBusy(false); }
+  }
+
+  async function saveEmployee(values: EmployeeFormValues) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      const editing = screen === "edit";
+      if (editing && !selected) return;
+      const payload = employeePayload(values, editing);
+      const all = await employeeRequest<Employee[]>();
+      ensureUniqueEmployee(payload, all, editing ? selected!.idFuncionario : undefined);
+      const saved = await employeeRequest<Employee>(editing ? `/${selected!.idFuncionario}` : "", editing ? "PUT" : "POST", payload);
+      setSelected(saved);
+      setScreen(editing ? "detail" : "list");
+      notify("Sucesso", editing ? "Funcionário atualizado." : "Funcionário cadastrado.");
+    } catch (error) { notify("Não foi possível salvar", errorMessage(error)); }
+    finally { pending.current = false; setBusy(false); }
+  }
+
+  async function deleteEmployee() {
+    if (pending.current || !selected) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      await employeeRequest<void>(`/${selected.idFuncionario}`, "DELETE");
+      setEmployees(current => current.filter(employee => employee.idFuncionario !== selected.idFuncionario));
+      setSelected(null);
+      setScreen("list");
+      notify("Sucesso", "Funcionário excluído.");
+    } catch (error) { notify("Não foi possível excluir", errorMessage(error)); }
+    finally { pending.current = false; setBusy(false); }
+  }
 
   return (
     <View style={styles.routeBackground}>
       <SafeAreaView style={[styles.screen, screen === "delete" && styles.dimScreen]}>
         {screen === "list" && (
           <EmployeeList
+            employees={employees}
+            search={search}
+            onSearch={setSearch}
+            loading={loading}
+            error={listError}
+            busy={busy}
+            onRetry={() => setRevision(current => current + 1)}
             onAdd={() => setScreen("add")}
             onBack={() => router.push("/home")}
-            onOpen={() => setScreen("detail")}
+            onOpen={openEmployee}
           />
         )}
-        {screen === "detail" && (
+        {screen === "detail" && selected && (
           <EmployeeDetail
+            employee={selected}
+            onEdit={() => setScreen("edit")}
             onBack={() => setScreen("list")}
             onDelete={() => setScreen("delete")}
           />
         )}
-        {screen === "add" && <EmployeeForm onBack={() => setScreen("list")} />}
+        {(screen === "add" || screen === "edit") && <EmployeeForm
+          employee={screen === "edit" ? selected : null}
+          busy={busy}
+          onSave={saveEmployee}
+          onBack={() => { if (!pending.current) setScreen(screen === "edit" ? "detail" : "list"); }}
+        />}
         {screen === "delete" && (
-          <DeleteSheet onCancel={() => setScreen("detail")} onConfirm={() => setScreen("list")} />
+          <DeleteSheet busy={busy} onCancel={() => setScreen("detail")} onConfirm={deleteEmployee} />
         )}
       </SafeAreaView>
     </View>
@@ -103,13 +173,21 @@ function Header({
 }
 
 function EmployeeList({
+  employees, search, onSearch, loading, error, busy, onRetry,
   onAdd,
   onBack,
   onOpen,
 }: {
+  employees: Employee[];
+  search: string;
+  onSearch: (value: string) => void;
+  loading: boolean;
+  error: string;
+  busy: boolean;
+  onRetry: () => void;
   onAdd: () => void;
   onBack: () => void;
-  onOpen: () => void;
+  onOpen: (employee: Employee) => void;
 }) {
   return (
     <>
@@ -126,33 +204,31 @@ function EmployeeList({
       <View style={styles.searchWrap}>
         <View style={styles.searchBox}>
           <Ionicons name="search-outline" size={18} color="#aaaaaa" />
-          <Text style={styles.searchText}>Buscar funcionarios...</Text>
+          <TextInput style={styles.searchText} placeholder="Buscar funcionarios..." placeholderTextColor={palette.muted} value={search} onChangeText={onSearch} />
         </View>
       </View>
       <View style={styles.employeeList}>
-        {employees.map((employee) => (
-          <Pressable key={employee.email} onPress={onOpen} style={styles.employeeCard}>
+        {!loading && !error && employees.map((employee) => (
+          <Pressable key={employee.idFuncionario} disabled={busy} onPress={() => onOpen(employee)} style={styles.employeeCard}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{employee.initials}</Text>
+              <Text style={styles.avatarText}>{initials(employee.nome)}</Text>
             </View>
             <View style={styles.employeeInfo}>
               <View style={styles.nameRow}>
-                <Text style={styles.employeeName}>{employee.name}</Text>
+                <Text style={styles.employeeName}>{employee.nome}</Text>
                 <View
                   style={[
                     styles.statusBadge,
-                    employee.statusTone === "away" && styles.statusBadgeAway,
                   ]}>
                   <Text
                     style={[
                       styles.statusText,
-                      employee.statusTone === "away" && styles.statusTextAway,
                     ]}>
-                    {employee.status}
+                    Não informado
                   </Text>
                 </View>
               </View>
-              <Text style={styles.employeeRole}>{employee.role}</Text>
+              <Text style={styles.employeeRole}>{employee.descricao}</Text>
               <Text style={styles.employeeEmail}>{employee.email}</Text>
             </View>
             <Text style={styles.chevron}>{">"}</Text>
@@ -160,20 +236,25 @@ function EmployeeList({
         ))}
       </View>
       <View style={styles.countWrap}>
-        <Text style={styles.countText}>Mostrando 3 de 14 funcionarios cadastrados</Text>
+        <Text style={styles.countText} onPress={error ? onRetry : undefined} accessibilityRole={error ? "button" : undefined}>
+          {loading ? "Carregando funcionários..." : error ? `${error} Toque para tentar novamente.` : busy ? "Carregando ficha..." : `Mostrando ${employees.length} funcionarios${search.trim() ? " encontrados" : " cadastrados"}`}
+        </Text>
       </View>
     </>
   );
 }
 
 function EmployeeDetail({
+  employee,
+  onEdit,
   onBack,
   onDelete,
 }: {
+  employee: Employee;
+  onEdit: () => void;
   onBack: () => void;
   onDelete: () => void;
 }) {
-  const employee = employees[0];
 
   return (
     <>
@@ -183,29 +264,27 @@ function EmployeeDetail({
         <View style={styles.profileCard}>
           <View style={styles.profileHead}>
             <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>{employee.initials}</Text>
+              <Text style={styles.profileAvatarText}>{initials(employee.nome)}</Text>
             </View>
             <View style={styles.profileTitleWrap}>
               <View style={styles.profileNameRow}>
-                <Text style={styles.profileName}>{employee.name}</Text>
+                <Text style={styles.profileName}>{employee.nome}</Text>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>{employee.status}</Text>
+                  <Text style={styles.statusText}>Não informado</Text>
                 </View>
               </View>
-              <Text style={styles.profileRole}>{employee.role}</Text>
+              <Text style={styles.profileRole}>{employee.descricao}</Text>
             </View>
           </View>
           <View style={styles.divider} />
           <View style={styles.infoList}>
             <InfoRow label="E-MAIL FUNCIONAL" value={employee.email} />
-            <InfoRow label="TELEFONE" value="(11) 98888-7777" />
-            <InfoRow label="DATA DE ADMISSAO" value="14/02/2024" />
-            <InfoRow label="PERMISSAO" value="Modo Administrador" />
+            <InfoRow label="TELEFONE" value={employee.telefone} />
           </View>
         </View>
       </ScrollView>
       <View style={styles.detailActions}>
-        <Pressable style={styles.editButton}>
+        <Pressable onPress={onEdit} style={styles.editButton}>
           <Text style={styles.editButtonText}>Editar Ficha</Text>
         </Pressable>
         <Pressable onPress={onDelete} style={styles.deleteOutlineButton}>
@@ -225,31 +304,38 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EmployeeForm({ onBack }: { onBack: () => void }) {
+function EmployeeForm({ onBack, onSave, employee, busy }: {
+  onBack: () => void;
+  onSave: (values: EmployeeFormValues) => void;
+  employee: Employee | null;
+  busy: boolean;
+}) {
+  const [values, setValues] = useState<EmployeeFormValues>({
+    nome: employee?.nome ?? "", cpf: employee ? employeeCpf(employee) : "",
+    email: employee?.email ?? "", telefone: employee?.telefone ?? "",
+    descricao: employee?.descricao ?? "", senha: "", confirmarSenha: "",
+  });
+  function field(key: keyof EmployeeFormValues): TextInputProps {
+    return { value: values[key], editable: !busy, onChangeText: value => setValues(current => ({ ...current, [key]: value })) };
+  }
   return (
     <>
       <AdminBar />
-      <Header title="Novo Funcionario" onBack={onBack} close />
+      <Header title={employee ? "Editar Funcionario" : "Novo Funcionario"} onBack={onBack} close />
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
-        <FormInput label="Nome Completo" required placeholder="Ex: Camila Soares Santos" focused />
-        <FormInput label="E-mail Funcional" required placeholder="Ex: camila.soares@clinica.com.br" />
-        <FormInput label="Telefone" required placeholder="Ex: (11) 98888-7777" />
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Cargo / Funcao</Text>
-          <View style={styles.selectField}>
-            <Text style={styles.selectText}>Fisioterapeuta Dermatofuncional</Text>
-            <Ionicons name="chevron-down-outline" size={18} color="#aaaaaa" />
-          </View>
-        </View>
-        <FormInput label="Data de Admissao" placeholder="DD/MM/AAAA" />
+        <FormInput label="Nome Completo" required placeholder="Ex: Camila Soares Santos" focused {...field("nome")} maxLength={150} />
+        <FormInput label="CPF" required placeholder="Ex: 000.000.000-00" {...field("cpf")} keyboardType="numeric" maxLength={14} />
+        <FormInput label="E-mail Funcional" required placeholder="Ex: camila.soares@clinica.com.br" {...field("email")} autoCapitalize="none" keyboardType="email-address" maxLength={255} />
+        <FormInput label="Telefone" required placeholder="Ex: (11) 98888-7777" {...field("telefone")} keyboardType="phone-pad" maxLength={20} />
+        <FormInput label="Descrição" required placeholder="Digite a descrição" {...field("descricao")} maxLength={255} />
         <View style={styles.passwordRow}>
-          <FormInput label="Senha" required placeholder="••••••••" password />
-          <FormInput label="Confirmar" required placeholder="••••••••" password />
+          <FormInput label="Senha" required={!employee} {...field("senha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
+          <FormInput label="Confirmar" required={!employee} {...field("confirmarSenha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
         </View>
       </ScrollView>
       <View style={styles.ctaWrap}>
-        <Pressable onPress={onBack} style={styles.ctaButton}>
-          <Text style={styles.ctaButtonText}>Cadastrar Funcionario</Text>
+        <Pressable disabled={busy} onPress={() => onSave(values)} style={styles.ctaButton}>
+          <Text style={styles.ctaButtonText}>{busy ? "Salvando..." : employee ? "Salvar Funcionario" : "Cadastrar Funcionario"}</Text>
         </Pressable>
       </View>
     </>
@@ -262,7 +348,8 @@ function FormInput({
   required,
   focused,
   password,
-}: {
+  ...inputProps
+}: TextInputProps & {
   label: string;
   placeholder: string;
   required?: boolean;
@@ -275,6 +362,7 @@ function FormInput({
         {label} {required && <Text style={styles.required}>*</Text>}
       </Text>
       <TextInput
+        {...inputProps}
         placeholder={placeholder}
         placeholderTextColor={password ? palette.muted : palette.placeholder}
         secureTextEntry={password}
@@ -285,9 +373,11 @@ function FormInput({
 }
 
 function DeleteSheet({
+  busy,
   onCancel,
   onConfirm,
 }: {
+  busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -302,11 +392,11 @@ function DeleteSheet({
         <Text style={styles.sheetBody}>Tem certeza que deseja excluir este funcionario?</Text>
         <Text style={styles.sheetNote}>Esta acao nao pode ser desfeita.</Text>
         <View style={styles.sheetActions}>
-          <Pressable onPress={onCancel} style={styles.cancelButton}>
+          <Pressable disabled={busy} onPress={onCancel} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Cancelar</Text>
           </Pressable>
-          <Pressable onPress={onConfirm} style={styles.deleteButton}>
-            <Text style={styles.deleteText}>Excluir</Text>
+          <Pressable disabled={busy} onPress={onConfirm} style={styles.deleteButton}>
+            <Text style={styles.deleteText}>{busy ? "Excluindo..." : "Excluir"}</Text>
           </Pressable>
         </View>
       </View>
@@ -704,22 +794,6 @@ const styles = StyleSheet.create({
   passwordInput: {
     fontSize: 18,
     letterSpacing: 3,
-  },
-  selectField: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1.5,
-    borderColor: palette.border,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  selectText: {
-    fontFamily,
-    fontSize: 15,
-    color: palette.label,
   },
   passwordRow: {
     flexDirection: "row",
