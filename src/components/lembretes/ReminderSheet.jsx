@@ -124,7 +124,8 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
               ) : (
                 <>
                   <Text style={styles.detailText}>
-                    <Text style={styles.detailStrong}>{reminder.service}</Text>  •  Realizado em {reminder.historyDate}
+                    <Text style={styles.detailStrong}>{reminder.service}</Text>
+                    {reminder.historyDate ? `  •  Realizado em ${reminder.historyDate}` : "  •  Sem atendimento anterior registrado"}
                   </Text>
                   <Text style={styles.returnHighlight}>Retorno recomendado: {reminder.returnDate}</Text>
                 </>

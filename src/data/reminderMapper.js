@@ -64,7 +64,8 @@ export function mapReminder(item) {
     appointmentDate: formatDate(item.dataHora),
     appointmentTime: formatTime(item.dataHora),
     returnDate: isReturn ? formatDate(item.dataRetornoPrevisto) : undefined,
-    historyDate: isReturn ? formatDate(item.dataUltimoAtendimento || item.dataHora) : undefined,
+    // Retorno vindo da OS: o atendimento anterior é a última OS concluída da cliente (pode não existir).
+    historyDate: isReturn && item.dataUltimoAtendimento ? formatDate(item.dataUltimoAtendimento) : null,
     historyNotes: item.observacao || "Sem observações registradas.",
     status: item.status,
     kind: kindOf(item),

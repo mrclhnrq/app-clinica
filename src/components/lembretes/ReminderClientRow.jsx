@@ -36,7 +36,9 @@ export function ReminderClientRow({ reminder, kind, onPress }) {
             <Text style={styles.lastLabel}>
               Último: <Text style={styles.lastService}>{reminder.service}</Text>
             </Text>
-            <Text style={styles.detailText}>Atendimento em {reminder.historyDate}</Text>
+            <Text style={styles.detailText}>
+              {reminder.historyDate ? `Atendimento em ${reminder.historyDate}` : `Retorno em ${reminder.returnDate}`}
+            </Text>
           </>
         )}
       </View>
