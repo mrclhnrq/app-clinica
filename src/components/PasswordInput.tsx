@@ -3,13 +3,13 @@ import { View, TextInput, Pressable, StyleSheet, TextInputProps } from "react-na
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, typography } from "../constants/theme";
 
-type PasswordInputProps = Omit<TextInputProps, "secureTextEntry">;
+type PasswordInputProps = Omit<TextInputProps, "secureTextEntry"> & { error?: boolean };
 
-export function PasswordInput({ style, ...rest }: PasswordInputProps) {
+export function PasswordInput({ style, error, ...rest }: PasswordInputProps) {
   const [visivel, setVisivel] = useState(false);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, error && styles.containerError]}>
       <TextInput
         style={[styles.input, style]}
         placeholderTextColor={colors.textLight}
@@ -39,6 +39,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     backgroundColor: colors.white,
   },
+  containerError: { borderColor: colors.danger },
   input: {
     flex: 1,
     paddingVertical: 10,

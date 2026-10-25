@@ -8,6 +8,7 @@ type AuthContextValue = {
   user: UsuarioLogado | null;
   signIn: (email: string, senha: string) => Promise<void>;
   signOut: () => void;
+  atualizarUsuario: (dados: Partial<Omit<UsuarioLogado, "userId">>) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -26,13 +27,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser({ userId, nome, email: emailUsuario, role });
   }, []);
 
+  // mantém nome/e-mail/cargo da sessão em dia depois de editar o perfil
+  const atualizarUsuario = useCallback((dados: Partial<Omit<UsuarioLogado, "userId">>) => {
+    setUser((atual) => (atual ? { ...atual, ...dados } : atual));
+  }, []);
+
   // se qualquer requisição voltar 401, o interceptor chama signOut
   useEffect(() => {
     setUnauthorizedHandler(signOut);
     return () => setUnauthorizedHandler(null);
   }, [signOut]);
 
-  const value = useMemo(() => ({ user, signIn, signOut }), [user, signIn, signOut]);
+  const value = useMemo(
+    () => ({ user, signIn, signOut, atualizarUsuario }),
+    [user, signIn, signOut, atualizarUsuario]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

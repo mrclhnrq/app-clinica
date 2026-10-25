@@ -3,6 +3,8 @@ import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { Card } from "@/components/Card";
 import { colors, spacing, radius } from "@/constants/theme";
+import { useAuth } from "@/context/AuthContext";
+import { iniciais } from "@/utils/cliente";
 
 type MenuItem = {
   title: string;
@@ -24,6 +26,8 @@ const menuItems: MenuItem[] = [
 ]; 
 
 export default function Home() {
+  const { user } = useAuth();
+
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -39,9 +43,19 @@ export default function Home() {
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
             <View style={styles.notifDot} />
           </Pressable>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={20} color={colors.white} />
-          </View>
+          <Pressable
+            style={styles.avatar}
+            onPress={() => router.push("/mais")}
+            accessibilityRole="button"
+            accessibilityLabel="Meu perfil"
+            hitSlop={6}
+          >
+            {user ? (
+              <Text style={styles.avatarTexto}>{iniciais(user.nome)}</Text>
+            ) : (
+              <Ionicons name="person" size={20} color={colors.white} />
+            )}
+          </Pressable>
         </View>
       </View>
 
@@ -112,5 +126,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  avatarTexto: { color: colors.white, fontWeight: "700", fontSize: 14 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
 });
