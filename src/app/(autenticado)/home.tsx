@@ -1,8 +1,8 @@
+import { Card } from "@/components/Card";
+import { colors, radius, spacing } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
-import { Card } from "@/components/Card";
-import { colors, spacing, radius } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
 
@@ -68,7 +68,7 @@ export default function Home() {
             icon={item.icon}
             onPress={
               item.href
-                ? () => router.push(item.href)
+                ? () => router.push(item.href as Href)
                 : item.icon === "document-text-outline"
                   ? () => router.push("/ordens")
                   : item.icon === "person-outline"

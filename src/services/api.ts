@@ -12,10 +12,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 }
 
 // fábrica: quando integrar o ms de ordem de serviço (8081), é só criar outra instância
-function criarClienteHttp(baseURL: string | undefined): AxiosInstance {
-  if (!baseURL) {
-    console.warn("URL base da API não definida. Confira o .env (EXPO_PUBLIC_API_URL).");
-  }
+function criarClienteHttp(baseURL: string): AxiosInstance {
 
   const client = axios.create({
     baseURL,
@@ -44,7 +41,9 @@ function criarClienteHttp(baseURL: string | undefined): AxiosInstance {
   return client;
 }
 
-export const api = criarClienteHttp(process.env.EXPO_PUBLIC_API_URL);
+const baseURL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080";
+
+export const api = criarClienteHttp(baseURL);
 
 // transforma qualquer erro do axios numa mensagem pronta pra mostrar no toast
 export function getErrorMessage(
