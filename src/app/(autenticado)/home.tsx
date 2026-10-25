@@ -3,6 +3,8 @@ import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { Card } from "@/components/Card";
 import { colors, spacing, radius } from "@/constants/theme";
+import { useAuth } from "@/context/AuthContext";
+import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
 
 type MenuItem = {
   title: string;
@@ -24,6 +26,8 @@ const menuItems: MenuItem[] = [
 ]; 
 
 export default function Home() {
+  const { user } = useAuth();
+
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -39,9 +43,19 @@ export default function Home() {
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
             <View style={styles.notifDot} />
           </Pressable>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={20} color={colors.white} />
-          </View>
+          <Pressable
+            style={styles.avatar}
+            onPress={() => router.push("/mais")}
+            accessibilityRole="button"
+            accessibilityLabel="Meu perfil"
+            hitSlop={6}
+          >
+            {user ? (
+              <AvatarUsuario nome={user.nome} foto={user.fotoPerfil} size={38} fundo={colors.gold} />
+            ) : (
+              <Ionicons name="person" size={20} color={colors.white} />
+            )}
+          </Pressable>
         </View>
       </View>
 
