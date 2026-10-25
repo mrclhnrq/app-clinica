@@ -8,16 +8,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OrderIcon } from "../../components/ordens/OrderIcon";
 
-import { itemCatalog, itemName, listOrders, loadOrderRelations, orderPayload, orderRequest,
-  type ServiceOrder, type OrderRelations, type OrderItem, type OrderPayload } from "../../services/ordens";
+import { itemCatalog, itemName, listOrders, loadOrderRelations, orderPayload, orderRequest, orderSchedule, orderStatusLabels, updateOrderStatus, orderRelationsError,
+  type ServiceOrder, type OrderRelations, type OrderItem, type OrderPayload, type OrderStatus } from "../../services/ordens";
 
 type Screen = "list" | "detail" | "add" | "edit" | "delete";
-type Status = "Pendente" | "Em Andamento" | "Concluída" | "Não informado";
-type Order = ServiceOrder & { client: string; date: string; amount: string; status: Status };
+type Status = "Pendente" | "Em Andamento" | "Concluída" | "Cancelada" | "Não informado";
+type Order = ServiceOrder & { client: string; date: string; amount: string; statusLabel: Status };
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const formatDate = (value: string) => {
   if (!value) return "Não informado";
-  const date = new Date(value + "T12:00:00");
+  const date = new Date(value.slice(0, 10) + "T12:00:00");
   const month = date.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
   return `${String(date.getDate()).padStart(2, "0")} ${month.charAt(0).toUpperCase() + month.slice(1)} ${date.getFullYear()}`;
 };
@@ -32,10 +32,13 @@ const statusColors: Record<Status, { background: string; color: string }> = {
   Pendente: { background: "#fef8e6", color: "#c8960a" },
   "Em Andamento": { background: "#e8f0ff", color: "#3a5fd4" },
   Concluída: { background: "#e6f9ee", color: "#2a9d5c" },
+  Cancelada: { background: "#fce8e8", color: "#e03535" },
 };
 
-function unavailable(action: string) {
-  notify(action + " não é suportado pelo contrato atual de ordens de serviço.");
+function scheduleInput(order?: ServiceOrder) {
+  if (!order?.dt_hora) return "";
+  const [year, month, day] = order.dt_hora.slice(0, 10).split("-");
+  return `${day}/${month}/${year}${order.retorno ? "" : ` ${order.dt_hora.slice(11, 19)}`}`;
 }
 
 export default function OrdensScreen() {
@@ -49,10 +52,11 @@ export default function OrdensScreen() {
   const [relationError, setRelationError] = useState("");
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
-  const back = useCallback(() => { if (!lock.current) setScreen(current => current === "delete" ? "detail" : "list"); }, []);
+  const back = useCallback(() => { if (!lock.current) setScreen(current => current === "delete" || current === "edit" ? "detail" : "list"); }, []);
   const decorate = useCallback((order: ServiceOrder, data: OrderRelations): Order => ({
     ...order, client: data.clients.find(client => client.id === order.clienteId)?.nomeCompleto ?? ("Cliente #" + order.clienteId),
-    date: formatDate(order.dataCriacao), amount: money(order.valorFinal), status: "Não informado",
+    date: order.dt_hora ? `${formatDate(order.dt_hora)} · ${order.dt_hora.slice(11, 16)}` : formatDate(order.dataCriacao),
+    amount: money(order.valorFinal), statusLabel: (orderStatusLabels[order.status] ?? "Não informado") as Status,
   }), []);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError("");
@@ -60,7 +64,7 @@ export default function OrdensScreen() {
     if (signal?.aborted) return;
     const data = relatedResult.status === "fulfilled" ? relatedResult.value : emptyRelations;
     setRelations(data);
-    setRelationError(relatedResult.status === "rejected" ? errorMessage(relatedResult.reason) : "");
+    setRelationError(relatedResult.status === "rejected" ? errorMessage(relatedResult.reason) : orderRelationsError(data));
     if (orderResult.status === "fulfilled") setOrders(orderResult.value.map(order => decorate(order, data)));
     else setError(errorMessage(orderResult.reason));
     setLoading(false);
@@ -74,19 +78,36 @@ export default function OrdensScreen() {
     if (lock.current) return;
     lock.current = true; setBusy(true);
     try {
-      const result = await orderRequest<ServiceOrder>("/ordens-servico/" + order.id);
-      setSelected(decorate(result, relations)); setScreen(editing ? "edit" : "detail");
+      const [result, relatedResult] = await Promise.allSettled([
+        orderRequest<ServiceOrder>("/ordens-servico/" + order.id), loadOrderRelations(undefined, order),
+      ]);
+      if (result.status === "rejected") throw result.reason;
+      const data = relatedResult.status === "fulfilled" ? relatedResult.value : relations;
+      setRelations(data);
+      setRelationError(relatedResult.status === "fulfilled" ? orderRelationsError(data) : errorMessage(relatedResult.reason));
+      setSelected(decorate(result.value, data)); setScreen(editing ? "edit" : "detail");
     } catch (error) { notify(errorMessage(error)); }
     finally { lock.current = false; setBusy(false); }
   }
   async function save(payload: OrderPayload) {
-    if (lock.current) return;
+    if (lock.current) throw new Error("Aguarde a operação em andamento e tente salvar novamente.");
     lock.current = true; setBusy(true);
     try {
       const result = await orderRequest<ServiceOrder>(screen === "edit" && selected ? "/ordens-servico/" + selected.id : "/ordens-servico", screen === "edit" ? "PUT" : "POST", payload);
       setSelected(decorate(result, relations)); setScreen("detail");
       notify("Ordem salva com sucesso."); await refresh();
     } catch (error) { notify(errorMessage(error)); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  async function retryRelations() {
+    if (lock.current) return;
+    lock.current = true; setBusy(true);
+    try {
+      const data = await loadOrderRelations(undefined, selected ?? undefined);
+      setRelations(data); setRelationError(orderRelationsError(data));
+      setOrders(current => current.map(order => decorate(order, data)));
+      setSelected(current => current ? decorate(current, data) : null);
+    } catch (error) { setRelationError(errorMessage(error)); }
     finally { lock.current = false; setBusy(false); }
   }
   async function remove() {
@@ -98,6 +119,60 @@ export default function OrdensScreen() {
       setSelected(null); setScreen("list"); notify("Ordem excluída com sucesso.");
     } catch (error) { notify(errorMessage(error)); }
     finally { lock.current = false; setBusy(false); }
+  }
+
+  async function changeStatus(status: OrderStatus, changeTime = false) {
+    if (lock.current || !selected) return;
+    lock.current = true; setBusy(true);
+    try {
+      const now = new Date();
+      const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(value => String(value).padStart(2, "0")).join(":");
+      const dtHora = changeTime ? `${selected.dt_hora.slice(0, 10)}T${time}` : undefined;
+      const result = await updateOrderStatus(selected.id, status, dtHora);
+      const updated = decorate(result, relations);
+      setSelected(updated); setOrders(current => current.map(order => order.id === updated.id ? updated : order));
+    } catch (error) { notify(errorMessage(error)); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  function selectStatus(status: OrderStatus) {
+    if (busy || !selected) return;
+    if (selected.retorno && selected.dt_hora.slice(11, 19) === "00:00:00" && (status === "EM_ANDAMENTO" || status === "CANCELADA")) {
+      const message = "Deseja registrar o horário atual neste retorno? A data cadastrada será preservada.";
+      if (Platform.OS === "web") {
+        const choice = window.prompt(`${message}\n1: Usar horário atual\n2: Manter 00:00`);
+        if (choice === "1" || choice === "2") void changeStatus(status, choice === "1");
+      }
+      else Alert.alert("Horário do retorno", message, [
+        { text: "Voltar", style: "cancel" },
+        { text: "Manter 00:00", onPress: () => void changeStatus(status) },
+        { text: "Usar horário atual", onPress: () => void changeStatus(status, true) },
+      ]);
+    } else void changeStatus(status);
+  }
+  function statusMenu() {
+    if (busy || !selected) return;
+    if (selected.status !== "PENDENTE" && selected.status !== "EM_ANDAMENTO") return;
+    const next: OrderStatus = selected.status === "PENDENTE" ? "EM_ANDAMENTO" : "CONCLUIDA";
+    if (Platform.OS === "web") {
+      const choice = window.prompt(`1: ${orderStatusLabels[next]}\n2: Cancelar atendimento\nEscolha uma opção:`);
+      if (choice === "1") selectStatus(next);
+      else if (choice === "2") selectStatus("CANCELADA");
+    } else Alert.alert("Atualizar status", "Selecione a ação para esta ordem.", [
+      { text: "Voltar", style: "cancel" },
+      { text: orderStatusLabels[next], onPress: () => selectStatus(next) },
+      { text: "Cancelar atendimento", style: "destructive", onPress: () => selectStatus("CANCELADA") },
+    ]);
+  }
+
+  function cancelAttendance() {
+    if (lock.current || !selected || (selected.status !== "PENDENTE" && selected.status !== "EM_ANDAMENTO")) return;
+    const message = "Deseja cancelar este atendimento? A ordem não poderá ser reaberta.";
+    if (Platform.OS === "web") {
+      if (window.confirm(message)) selectStatus("CANCELADA");
+    } else Alert.alert("Cancelar atendimento", message, [
+      { text: "Voltar", style: "cancel" },
+      { text: "Cancelar atendimento", style: "destructive", onPress: () => selectStatus("CANCELADA") },
+    ]);
   }
 
   useFocusEffect(useCallback(() => {
@@ -119,8 +194,8 @@ export default function OrdensScreen() {
           onAdd={() => { if (!busy) setScreen("add"); }}
           onOpen={order => void open(order)}
         />}
-        {screen === "detail" && selected && <OrderDetail relations={relations} busy={busy} order={selected} onBack={back} onDelete={() => setScreen("delete")} />}
-        {(screen === "add" || screen === "edit") && <OrderForm key={screen + selected?.id} original={screen === "edit" ? selected ?? undefined : undefined} relations={relations} busy={busy || loading} error={relationError} onSave={save} onClose={back} />}
+        {screen === "detail" && selected && <OrderDetail relations={relations} busy={busy} order={selected} onBack={back} onDelete={() => setScreen("delete")} onEdit={() => void open(selected, true)} onCancel={cancelAttendance} onStatusMenu={statusMenu} onStart={() => selectStatus(selected.status === "PENDENTE" ? "EM_ANDAMENTO" : "CONCLUIDA")} />}
+        {(screen === "add" || screen === "edit") && <OrderForm key={screen + selected?.id} original={screen === "edit" ? selected ?? undefined : undefined} relations={relations} busy={busy} error={relationError} onRetry={retryRelations} onSave={save} onClose={back} />}
         {screen === "delete" && <DeleteSheet busy={busy} onDelete={remove} onCancel={back} />}
       </SafeAreaView>
     </View>
@@ -143,10 +218,10 @@ function OrderStatusBar() {
   </View>;
 }
 
-function StatusBadge({ status, detail = false }: { status: Status; detail?: boolean }) {
+function StatusBadge({ status, detail = false, onPress }: { status: Status; detail?: boolean; onPress?: () => void }) {
   const colors = statusColors[status];
   return <View style={[styles.badge, { backgroundColor: colors.background }, detail && styles.detailBadge]}>
-    <Text style={[styles.badgeText, { color: colors.color }, detail && styles.detailBadgeText]}>
+    <Text onPress={onPress} accessibilityRole={onPress ? "button" : undefined} accessibilityHint={onPress ? "Atualizar status da ordem" : undefined} style={[styles.badgeText, { color: colors.color }, detail && styles.detailBadgeText]}>
       {detail ? `Status ${status}` : status}
     </Text>
   </View>;
@@ -159,7 +234,7 @@ function OrderList({ orders, loading, error, onRetry, onEdit, search, onSearch, 
 }) {
   const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const visible = orders.filter(order =>
-    normalize(`OS #${order.id} ${order.client} ${order.date} ${order.status}`).includes(normalize(search.trim()))
+    normalize(`OS #${order.id} ${order.client} ${order.date} ${order.statusLabel}`).includes(normalize(search.trim()))
   );
   return <>
     <View style={styles.listHeader}>
@@ -176,8 +251,8 @@ function OrderList({ orders, loading, error, onRetry, onEdit, search, onSearch, 
     <ScrollView style={styles.scroll} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
       {(loading || Boolean(error)) && <Text style={styles.empty} onPress={onRetry}>{loading ? "Carregando ordens..." : error + " Toque para tentar novamente."}</Text>}
       {visible.map(order => <Pressable key={order.id} accessibilityRole="button"
-        accessibilityLabel={`Abrir OS #${order.id}, ${order.client}, ${order.status}`} disabled={loading} onPress={() => onOpen(order)} onLongPress={() => onEdit(order)} accessibilityHint="Mantenha pressionado para editar" accessibilityActions={[{ name: "edit", label: "Editar ordem" }]} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "edit") onEdit(order); }} style={styles.orderCard}>
-        <View style={styles.cardHeading}><Text style={styles.orderNumber}>OS #{order.id}</Text><StatusBadge status={order.status} /></View>
+        accessibilityLabel={`Abrir OS #${order.id}, ${order.client}, ${order.statusLabel}`} disabled={loading} onPress={() => onOpen(order)} onLongPress={() => onEdit(order)} accessibilityHint="Mantenha pressionado para editar" accessibilityActions={[{ name: "edit", label: "Editar ordem" }]} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "edit") onEdit(order); }} style={styles.orderCard}>
+        <View style={styles.cardHeading}><Text style={styles.orderNumber}>OS #{order.id}</Text><StatusBadge status={order.statusLabel} /></View>
         <Text style={styles.clientName}>{order.client}</Text>
         <View style={styles.between}><Text style={styles.date}>{order.date}</Text><Text style={styles.amount}>{order.amount}</Text></View>
       </Pressable>)}
@@ -198,7 +273,7 @@ function ValueRow({ label, value, total = false }: { label: string; value: strin
   </View>;
 }
 
-function OrderDetail({ order, relations, busy, onBack, onDelete }: { order: Order; relations: OrderRelations; busy: boolean; onBack: () => void; onDelete: () => void }) {
+function OrderDetail({ order, relations, busy, onBack, onDelete, onEdit, onCancel, onStart, onStatusMenu }: { order: Order; relations: OrderRelations; busy: boolean; onBack: () => void; onDelete: () => void; onEdit: () => void; onCancel: () => void; onStart: () => void; onStatusMenu: () => void }) {
   const client = relations.clients.find(client => client.id === order.clienteId);
   const user = relations.users.find(user => user.id === order.usuarioId);
   return <ScrollView style={styles.scroll} contentContainerStyle={styles.detailContent}>
@@ -209,7 +284,7 @@ function OrderDetail({ order, relations, busy, onBack, onDelete }: { order: Orde
         </Pressable>
         <Text accessibilityRole="header" style={styles.detailTitle}>Ordem #{order.id}</Text>
       </View>
-      <StatusBadge status={order.status} detail />
+      <StatusBadge status={order.statusLabel} detail onPress={onStatusMenu} />
     </View>
     <View style={styles.detailCard}>
       <View style={styles.section}>
@@ -219,10 +294,10 @@ function OrderDetail({ order, relations, busy, onBack, onDelete }: { order: Orde
       </View>
       <Divider />
       <View style={styles.infoGrid}>
-        <View style={styles.column}><Info label="DATA DE CRIAÇÃO">{order.date}</Info></View>
+        <View style={styles.column}><Info label="DATA DO ATENDIMENTO">{order.date}</Info></View>
         <View style={styles.column}><Info label="RESPONSÁVEL">{user?.nomeCompleto || user?.nome || ("Usuário #" + order.usuarioId)}</Info></View>
       </View>
-      <View style={styles.section}><Info label="DATA DO RETORNO">{"Não suportado pelo backend"}</Info></View>
+      <View style={styles.section}><Info label="DATA DO RETORNO">{order.retorno ? order.date : "Não se aplica"}</Info></View>
       <Divider />
       <View style={styles.section}>
         <Text style={[styles.infoLabel, styles.itemLabel]}>SERVIÇOS</Text>
@@ -248,12 +323,20 @@ function OrderDetail({ order, relations, busy, onBack, onDelete }: { order: Orde
       <Text style={styles.observation}>{order.observacao || "Nenhuma observação cadastrada para esta ordem de serviço."}</Text>
     </View>
     <View style={styles.detailActions}>
-      <Pressable accessibilityRole="button" onPress={() => unavailable("Iniciar atendimento")} style={styles.startButton}>
-        <Text style={styles.actionText}>Iniciar Atendimento</Text>
+      <Pressable accessibilityRole="button" disabled={busy || (order.status !== "PENDENTE" && order.status !== "EM_ANDAMENTO")} onPress={onStart} style={styles.startButton}>
+        <Text style={styles.actionText}>{order.status === "PENDENTE" ? "Iniciar Atendimento" : order.status === "EM_ANDAMENTO" ? "Concluir Atendimento" : order.statusLabel}</Text>
       </Pressable>
       <Pressable accessibilityRole="button" disabled={busy} onPress={onDelete} style={styles.deleteOutline}>
         <Text style={styles.deleteOutlineText}>Excluir</Text>
       </Pressable>
+    </View>
+    <View style={styles.detailActions}>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={onEdit} style={styles.startButton}>
+        <Text style={styles.actionText}>Editar</Text>
+      </Pressable>
+      {(order.status === "PENDENTE" || order.status === "EM_ANDAMENTO") && <Pressable accessibilityRole="button" disabled={busy} onPress={onCancel} style={styles.deleteOutline}>
+        <Text style={styles.deleteOutlineText}>Cancelar atendimento</Text>
+      </Pressable>}
     </View>
   </ScrollView>;
 }
@@ -281,9 +364,9 @@ function DraftItem({ label, name, price, visible, onRemove, onAdd }: {
   </View>;
 }
 
-function OrderForm({ original, relations, busy, error, onSave, onClose }: { original?: ServiceOrder; relations: OrderRelations; busy: boolean; error: string; onSave: (payload: OrderPayload) => Promise<void>; onClose: () => void }) {
-  const [needsReturn] = useState(true);
-  const [returnDate, setReturnDate] = useState("");
+function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose }: { original?: ServiceOrder; relations: OrderRelations; busy: boolean; error: string; onRetry: () => void; onSave: (payload: OrderPayload) => Promise<void>; onClose: () => void }) {
+  const [needsReturn, setNeedsReturn] = useState(original?.retorno ?? false);
+  const [returnDate, setReturnDate] = useState(() => scheduleInput(original));
   const [notes, setNotes] = useState(original?.observacao ?? "");
   const [clientId, setClientId] = useState(original?.clienteId ?? 0);
   const [userId, setUserId] = useState(original?.usuarioId ?? 0);
@@ -310,8 +393,7 @@ function OrderForm({ original, relations, busy, error, onSave, onClose }: { orig
     if (busy || submitting.current) return;
     submitting.current = true;
     try {
-      if (error) throw new Error(error);
-      await onSave(orderPayload(clientId, userId, notes, items, relations, original));
+      await onSave(orderPayload(clientId, userId, notes, items, relations, original, orderSchedule(returnDate, needsReturn, original)));
     } catch (error) { notify(errorMessage(error)); }
     finally { submitting.current = false; }
   }
@@ -336,15 +418,15 @@ function OrderForm({ original, relations, busy, error, onSave, onClose }: { orig
       </Pressable>
     </View>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
-      {Boolean(error) && <Text style={styles.empty}>{error}</Text>}
+      {Boolean(error) && <Text style={styles.empty} onPress={busy ? undefined : onRetry}>{error} Toque para tentar novamente.</Text>}
       <Field label="Cliente"><Pressable accessibilityRole="button" accessibilityLabel="Selecione o cliente"
         onPress={() => togglePicker("client")} style={styles.select}>
-        <Text style={styles.placeholder}>{relations.clients.find(client => client.id === clientId)?.nomeCompleto || "Selecione o cliente..."}</Text><OrderIcon name="chevron" size={18} />
+        <Text style={styles.placeholder}>{relations.clients.find(client => client.id === clientId)?.nomeCompleto || (clientId ? `Cliente #${clientId}` : "Selecione o cliente...")}</Text><OrderIcon name="chevron" size={18} />
       </Pressable></Field>
       {choices("client")}
       <Field label="Funcionário"><Pressable accessibilityRole="button" accessibilityLabel="Selecione o funcionário"
         onPress={() => togglePicker("user")} style={styles.select}>
-        <Text style={styles.placeholder}>{relations.users.find(user => user.id === userId)?.nomeCompleto || relations.users.find(user => user.id === userId)?.nome || "Selecione o funcionário..."}</Text><OrderIcon name="chevron" size={18} />
+        <Text style={styles.placeholder}>{relations.users.find(user => user.id === userId)?.nomeCompleto || relations.users.find(user => user.id === userId)?.nome || (userId ? `Responsável #${userId}` : "Selecione o funcionário...")}</Text><OrderIcon name="chevron" size={18} />
       </Pressable></Field>
       {choices("user")}
       {([false, true] as const).map(product => <View key={String(product)}>
@@ -357,24 +439,24 @@ function OrderForm({ original, relations, busy, error, onSave, onClose }: { orig
         </View>)}
       </View>)}
       <View style={styles.between}>
-        <Text style={styles.returnLabel}>Precisa de retorno?</Text>
-        <Pressable accessibilityRole="switch" accessibilityLabel="Precisa de retorno?" accessibilityState={{ checked: needsReturn }}
-          onPress={() => unavailable("Agendamento de retorno")} style={[styles.toggle, !needsReturn && styles.toggleOff]}>
+        <Text style={styles.returnLabel}>Atendimento de retorno?</Text>
+        <Pressable accessibilityRole="switch" accessibilityLabel="Atendimento de retorno?" accessibilityState={{ checked: needsReturn, disabled: busy || !!original }} disabled={busy || !!original}
+          onPress={() => setNeedsReturn(value => !value)} style={[styles.toggle, !needsReturn && styles.toggleOff]}>
           <View style={[styles.toggleKnob, !needsReturn && styles.toggleKnobOff]} />
         </Pressable>
       </View>
-      {needsReturn && <Field label="Data do retorno"><View style={styles.select}>
-        <TextInput accessibilityLabel="Data do retorno" placeholder="Selecione a data" placeholderTextColor={palette.muted}
-          value={returnDate} onFocus={() => unavailable("Data de retorno")} onChangeText={() => setReturnDate("")} style={styles.dateInput} />
+      <Field label={needsReturn ? "Data do retorno" : "Data e hora do atendimento"}><View style={styles.select}>
+        <TextInput accessibilityLabel={needsReturn ? "Data do retorno" : "Data e hora do atendimento"} placeholder={needsReturn ? "DD/MM/AAAA" : "DD/MM/AAAA HH:mm"} placeholderTextColor={palette.muted}
+          editable={!busy && !original?.retorno} value={returnDate} onChangeText={setReturnDate} style={styles.dateInput} />
         <OrderIcon name="calendar" size={20} />
-      </View></Field>}
+      </View></Field>
       <View style={styles.notesField}><Field label="Observações">
         <TextInput accessibilityLabel="Observações" multiline placeholder="Ex: Paciente possui sensibilidade nos dentes..."
           placeholderTextColor={palette.muted} editable={!busy} maxLength={255} value={notes} onChangeText={setNotes} style={styles.notesInput} />
       </Field></View>
     </ScrollView>
     <View style={styles.createWrap}>
-      <Pressable accessibilityRole="button" disabled={busy || !!error} onPress={submit} style={styles.createButton}>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={submit} style={styles.createButton}>
         <Text style={styles.createText}>{busy ? "Salvando..." : original ? "Salvar Ordem" : "Criar Ordem"}</Text>
       </Pressable>
     </View>
