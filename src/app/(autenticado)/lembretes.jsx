@@ -6,7 +6,7 @@ import { colors, spacing } from "../../constants/theme";
 import { useEffect, useState } from "react";
 import { ActivityIndicator } from "react-native";
 import { listReminders } from "../../services/api";
-import { isReturnReminder } from "../../data/reminderMapper";
+import { mapReminder } from "../../data/reminderMapper";
 
 export default function Lembretes() {
   const [counts, setCounts] = useState({ horario: 0, retorno: 0 });
@@ -15,10 +15,10 @@ export default function Lembretes() {
   useEffect(() => {
     listReminders()
       .then((response) => {
-        const reminders = response?.content || [];
+        const reminders = (response?.content || []).map(mapReminder).filter((item) => item.status !== "CANCELADO");
         setCounts({
-          horario: reminders.filter((item) => !isReturnReminder(item) && item.status !== "CANCELADO").length,
-          retorno: reminders.filter((item) => isReturnReminder(item) && item.status !== "CANCELADO").length,
+          horario: reminders.filter((item) => item.kind === "horario").length,
+          retorno: reminders.filter((item) => item.kind === "retorno").length,
         });
       })
       .catch((error) => console.error("Falha ao carregar resumo de lembretes", error))

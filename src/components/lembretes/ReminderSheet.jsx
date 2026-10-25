@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -13,34 +15,59 @@ import {
   Alert,
 } from "react-native";
 import { colors, radius, spacing } from "../../constants/theme";
-import { sendReminder } from "../../services/api";
-function suggestedMessage(reminder, kind) {
+import { generateReminderMessage, sendReminder } from "../../services/api";
+
+// Texto usado só se a geração pela IA falhar, para o usuário não ficar sem mensagem.
+function fallbackMessage(reminder, kind) {
   const firstName = reminder.name.split(" ")[0];
   if (kind === "horario") {
-    return `Olá, ${firstName}! Passando para lembrar do seu agendamento de ${reminder.service} ${reminder.appointmentDate.toLowerCase()} às ${reminder.appointmentTime}. Esperamos você!`;
+    return `Olá, ${firstName}! Passando para lembrar do seu atendimento de ${reminder.service} em ${reminder.appointmentDate} às ${reminder.appointmentTime}. Esperamos você!`;
   }
-  return `Olá, ${firstName}! Tudo bem? Notamos que está na hora de agendar seu retorno para acompanhar o resultado do seu ${reminder.service}. Podemos encontrar um melhor horário para você?`;
+  return `Olá, ${firstName}! Tudo bem? Está chegando o período do seu retorno de ${reminder.service}. Quer que a gente encontre um horário para você?`;
 }
 
 export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
-  const [message, setMessage] = useState(() => (reminder ? suggestedMessage(reminder, kind) : ""));
+  const [message, setMessage] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState("");
   const [sending, setSending] = useState(false);
+
+  const generate = useCallback(async () => {
+    if (!reminder) return;
+    setGenerating(true);
+    setGenerationError("");
+    try {
+      const response = await generateReminderMessage(reminder.backendId);
+      setMessage(response?.conteudo || fallbackMessage(reminder, kind));
+    } catch (error) {
+      console.error("Falha ao gerar mensagem com IA", error);
+      setGenerationError("Não foi possível gerar com a IA agora. Revise a mensagem padrão abaixo.");
+      setMessage((current) => current || fallbackMessage(reminder, kind));
+    } finally {
+      setGenerating(false);
+    }
+  }, [reminder, kind]);
+
+  useEffect(() => {
+    if (visible && reminder) generate();
+  }, [visible, reminder, generate]);
 
   if (!reminder) return null;
 
-  const regenerateMessage = () => {
-    setMessage(
-      kind === "horario"
-        ? `Oi, ${reminder.name.split(" ")[0]}! Seu horário para ${reminder.service} está reservado para ${reminder.appointmentDate.toLowerCase()} às ${reminder.appointmentTime}. Contamos com você!`
-        : `Olá, ${reminder.name.split(" ")[0]}! Que tal agendarmos seu retorno de ${reminder.service}? Estamos à disposição para encontrar o melhor horário.`,
-    );
-  };
-
   const handleSend = async () => {
+    const text = message.trim();
+    if (!text) {
+      Alert.alert("Mensagem vazia", "Escreva ou gere uma mensagem antes de enviar.");
+      return;
+    }
     setSending(true);
     try {
-      await sendReminder(reminder.backendId);
-      Alert.alert("Mensagem enviada", "O lembrete foi enviado pelo WhatsApp e registrado no histórico.");
+      const response = await sendReminder(reminder.backendId, text);
+      if (response?.status === "FALHA" || !response?.whatsappUrl) {
+        Alert.alert("Não foi possível abrir o WhatsApp", response?.erroProvedor || "Verifique o telefone do cliente.");
+        return;
+      }
+      await Linking.openURL(response.whatsappUrl);
       onSent?.();
       onClose();
     } catch (error) {
@@ -50,6 +77,8 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
       setSending(false);
     }
   };
+
+  const busy = generating || sending;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -66,7 +95,11 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
                 <Text style={styles.title}>
                   {kind === "horario" ? "Enviar lembrete de horário" : "Enviar lembrete de retorno"}
                 </Text>
-                <Text style={styles.subtitle}>Confirme as informações abaixo antes do envio.</Text>
+                <Text style={styles.subtitle}>
+                  {kind === "horario"
+                    ? "Confirme as informações abaixo antes do envio."
+                    : "Confirme as informações antes de sugerir o retorno."}
+                </Text>
               </View>
               <Pressable accessibilityLabel="Fechar" onPress={onClose} style={styles.close}>
                 <Ionicons name="close" size={21} color={colors.textMuted} />
@@ -86,39 +119,49 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
 
             <View style={styles.infoCard}>
               <Text style={styles.label}>
-                {kind === "horario" ? "ATENDIMENTO" : "HISTÓRICO DO ATENDIMENTO"}
+                {kind === "horario" ? "AGENDAMENTO" : "HISTÓRICO"}
               </Text>
               <Text style={styles.detailStrong}>{reminder.service}</Text>
               {kind === "horario" ? (
                 <Text style={styles.detailText}>{reminder.appointmentDate} às {reminder.appointmentTime}</Text>
               ) : (
                 <>
-                  <Text style={styles.detailText}>Atendimento em {reminder.historyDate}</Text>
-                  <Text style={styles.detailText}>{reminder.historyNotes}</Text>
+                  <Text style={styles.detailText}>Realizado em {reminder.historyDate}</Text>
                   <Text style={styles.returnHighlight}>Retorno recomendado: {reminder.returnDate}</Text>
                 </>
               )}
             </View>
 
-            <Text style={styles.messageLabel}>Mensagem sugerida pela IA</Text>
-            <TextInput
-              multiline
-              value={message}
-              onChangeText={setMessage}
-              style={styles.messageInput}
-              textAlignVertical="top"
-              placeholder="Digite a mensagem..."
-              placeholderTextColor={colors.textLight}
-            />
-            <Pressable style={styles.regenerate} onPress={regenerateMessage}>
+            <Text style={styles.messageLabel}>Mensagem sugerida pela IA ✨</Text>
+            {generating ? (
+              <View style={[styles.messageInput, styles.generating]}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={styles.generatingText}>Gerando mensagem com IA...</Text>
+              </View>
+            ) : (
+              <TextInput
+                multiline
+                value={message}
+                onChangeText={setMessage}
+                style={styles.messageInput}
+                textAlignVertical="top"
+                placeholder="Digite a mensagem..."
+                placeholderTextColor={colors.textLight}
+              />
+            )}
+            {!!generationError && <Text style={styles.generationError}>{generationError}</Text>}
+            <Pressable style={[styles.regenerate, busy && styles.disabled]} onPress={generate} disabled={busy}>
               <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
               <Text style={styles.regenerateText}>Gerar outra mensagem</Text>
             </Pressable>
 
-            <Pressable style={[styles.sendButton, sending && styles.disabled]} onPress={handleSend} disabled={sending}>
-              <Ionicons name="send-outline" size={18} color={colors.white} />
-              <Text style={styles.sendText}>{sending ? "Enviando..." : "Enviar mensagem"}</Text>
+            <Pressable style={[styles.sendButton, (busy || !reminder.hasPhone) && styles.disabled]} onPress={handleSend} disabled={busy || !reminder.hasPhone}>
+              <Ionicons name="logo-whatsapp" size={18} color={colors.white} />
+              <Text style={styles.sendText}>{sending ? "Abrindo WhatsApp..." : "Enviar mensagem"}</Text>
             </Pressable>
+            {!reminder.hasPhone && (
+              <Text style={styles.generationError}>Cliente sem telefone cadastrado. Atualize o cadastro para enviar pelo WhatsApp.</Text>
+            )}
             <Pressable style={styles.cancelButton} onPress={onClose}>
               <Text style={styles.cancelText}>Cancelar</Text>
             </Pressable>
@@ -159,9 +202,12 @@ const styles = StyleSheet.create({
   messageInput: { minHeight: 118, backgroundColor: colors.primaryLight, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 14, lineHeight: 21 },
   regenerate: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: spacing.md },
   regenerateText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  sendButton: { height: 50, borderRadius: radius.sm, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
+  sendButton: { height: 50, borderRadius: radius.sm, backgroundColor: "#25D366", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
   disabled: { opacity: 0.6 },
   sendText: { color: colors.white, fontSize: 15, fontWeight: "700" },
   cancelButton: { alignItems: "center", padding: spacing.md },
+  generating: { alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  generatingText: { color: colors.textMuted, fontSize: 13 },
+  generationError: { color: colors.danger, fontSize: 12, marginTop: spacing.sm },
   cancelText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
 });

@@ -1,12 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow";
 import { ReminderSheet } from "../../components/lembretes/ReminderSheet";
 import { colors, radius, spacing } from "../../constants/theme";
 import { listReminders } from "../../services/api";
-import { mapReminder } from "../../data/reminderMapper";
+import { mapReminder, parseLocalDate } from "../../data/reminderMapper";
 
 const filters = ["Hoje", "Amanhã", "Próximos 7 dias"];
 
@@ -18,9 +18,13 @@ export default function LembreteHorario() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError("");
     listReminders()
-      .then((response) => setReminders((response?.content || []).map(mapReminder).filter((item) => item.kind === "horario")))
+      .then((response) => setReminders((response?.content || [])
+        .map(mapReminder)
+        .filter((item) => item.kind === "horario" && item.status !== "CANCELADO")))
       .catch((requestError) => {
         console.error("Falha ao carregar lembretes de horário", requestError);
         setError(requestError.message);
@@ -28,9 +32,13 @@ export default function LembreteHorario() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const filtered = useMemo(() => reminders.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase());
-    const date = new Date(item.raw.dataHora);
+    const date = parseLocalDate(item.raw.dataHora) || new Date(NaN);
     const today = new Date();
     const tomorrow = new Date();
     tomorrow.setDate(today.getDate() + 1);
@@ -59,7 +67,7 @@ export default function LembreteHorario() {
         ListHeaderComponent={loading ? <ActivityIndicator color={colors.primary} style={styles.loading} /> : error ? <Pressable onPress={() => Alert.alert("Erro ao carregar lembretes", error)}><Text style={styles.error}>{error}</Text></Pressable> : null}
         ListEmptyComponent={!loading ? <View style={styles.empty}><Ionicons name="calendar-outline" size={36} color={colors.primary} /><Text style={styles.emptyTitle}>Nenhum lembrete encontrado</Text><Text style={styles.emptyText}>Não há clientes com agendamento futuro para este filtro.</Text></View> : null}
       />
-      <ReminderSheet key={selected?.id ?? "closed"} visible={selected !== null} kind="horario" reminder={selected} onClose={() => setSelected(null)} />
+      <ReminderSheet key={selected?.id ?? "closed"} visible={selected !== null} kind="horario" reminder={selected} onClose={() => setSelected(null)} onSent={load} />
     </View>
   );
 }

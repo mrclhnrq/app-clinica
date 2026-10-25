@@ -45,8 +45,21 @@ npx expo start
 ```
 
 As rotas integradas são `/lembretes`, `/lembrete-horario` e
-`/lembrete-retorno`. O envio usa o endpoint do backend com canal `WHATSAPP`,
-que gera o conteúdo no servidor e registra o resultado no histórico.
+`/lembrete-retorno`. Ao tocar em um cliente, o app pede ao backend a mensagem
+gerada pela IA (`POST /lembretes/{id}/gerar`); o texto pode ser editado ou
+gerado de novo. Em "Enviar mensagem", o app registra o envio com o texto
+revisado (`POST /lembretes/{id}/enviar`) e abre o `whatsappUrl` devolvido: o
+WhatsApp abre na conversa do cliente com a mensagem digitada, e o envio final
+é feito manualmente.
+
+O backend exige token JWT. O `src/services/api.js` envia o token salvo pelo
+`login(email, senha)`; enquanto a tela de login não chama a API, dá para testar
+informando um token obtido no `POST /usuarios/login`:
+
+```powershell
+$env:EXPO_PUBLIC_API_TOKEN="cole-o-token-aqui"
+npx expo start
+```
 
 ## Get a fresh project
 

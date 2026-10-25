@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow";
 import { ReminderSheet } from "../../components/lembretes/ReminderSheet";
@@ -15,15 +15,23 @@ export default function LembreteRetorno() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError("");
     listReminders()
-      .then((response) => setReminders((response?.content || []).map(mapReminder).filter((item) => item.kind === "retorno")))
+      .then((response) => setReminders((response?.content || [])
+        .map(mapReminder)
+        .filter((item) => item.kind === "retorno" && item.status !== "CANCELADO")))
       .catch((requestError) => {
         console.error("Falha ao carregar lembretes de retorno", requestError);
         setError(requestError.message);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(() => reminders.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())), [reminders, search]);
 
@@ -42,7 +50,7 @@ export default function LembreteRetorno() {
         ListHeaderComponent={loading ? <ActivityIndicator color={colors.primary} style={styles.loading} /> : error ? <Pressable onPress={() => Alert.alert("Erro ao carregar lembretes", error)}><Text style={styles.error}>{error}</Text></Pressable> : null}
         ListEmptyComponent={!loading ? <View style={styles.empty}><Ionicons name="refresh-outline" size={36} color={colors.primary} /><Text style={styles.emptyTitle}>Nenhum lembrete encontrado</Text><Text style={styles.emptyText}>Não há retornos recomendados pendentes.</Text></View> : null}
       />
-      <ReminderSheet key={selected?.id ?? "closed"} visible={selected !== null} kind="retorno" reminder={selected} onClose={() => setSelected(null)} />
+      <ReminderSheet key={selected?.id ?? "closed"} visible={selected !== null} kind="retorno" reminder={selected} onClose={() => setSelected(null)} onSent={load} />
     </View>
   );
 }
