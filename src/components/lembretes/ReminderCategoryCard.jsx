@@ -1,64 +1,58 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radius, spacing } from "../../constants/theme";
+import { reminderColors } from "./lembretesTheme";
 
 export function ReminderCategoryCard({ title, description, activeCount, icon, onPress }) {
   return (
-    <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]} onPress={onPress}>
+    <Pressable
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      onPress={onPress}
+    >
       <View style={styles.topRow}>
         <View style={styles.iconBox}>
-          <Ionicons name={icon} size={24} color={colors.primary} />
+          <Ionicons name={icon} size={22} color={colors.white} />
         </View>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{activeCount}</Text>
+          <Text style={styles.badgeText}>{activeCount} {activeCount === 1 ? "Ativo" : "Ativos"}</Text>
         </View>
       </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>{description}</Text>
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Gerenciar lembretes</Text>
-        <Ionicons name="arrow-forward" size={17} color={colors.primary} />
-      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.white,
+    backgroundColor: reminderColors.cardPurple,
     borderRadius: radius.md,
     padding: spacing.lg,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
     shadowColor: "#32153f",
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.15,
     shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  pressed: { opacity: 0.85 },
-  topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  pressed: { opacity: 0.9 },
+  topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   iconBox: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: radius.sm,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
   badge: {
-    minWidth: 36,
-    height: 28,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: "#E6F6EC",
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: reminderColors.goldBadge,
   },
-  badgeText: { color: "#27834A", fontWeight: "700", fontSize: 13 },
-  title: { color: colors.text, fontSize: 18, fontWeight: "700", marginTop: spacing.lg },
-  description: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginTop: spacing.sm },
-  footer: { flexDirection: "row", alignItems: "center", marginTop: spacing.lg, gap: spacing.sm },
-  footerText: { color: colors.primary, fontSize: 13, fontWeight: "600", flex: 1 },
+  badgeText: { color: colors.white, fontWeight: "700", fontSize: 12 },
+  title: { color: colors.white, fontSize: 18, fontWeight: "700", marginTop: spacing.lg },
+  description: { color: "rgba(255,255,255,0.82)", fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
 });

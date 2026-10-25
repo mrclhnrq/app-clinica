@@ -1,29 +1,43 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radius, spacing } from "../../constants/theme";
+import { reminderColors } from "./lembretesTheme";
+
+export function SentBadge() {
+  return (
+    <View style={styles.sentBadge}>
+      <Ionicons name="checkmark-done" size={13} color={reminderColors.sentText} />
+      <Text style={styles.sentText}>Enviado</Text>
+    </View>
+  );
+}
+
 export function ReminderClientRow({ reminder, kind, onPress }) {
+  const sent = reminder.status === "ENVIADO";
   return (
     <Pressable style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={onPress}>
       <View style={styles.avatar}>
         <Text style={styles.initials}>{reminder.initials}</Text>
       </View>
       <View style={styles.content}>
-        <Text style={styles.name}>{reminder.name}</Text>
-        <Text style={styles.service}>{reminder.service}</Text>
-        <View style={styles.detail}>
-          <Ionicons
-            name={kind === "horario" ? "calendar-outline" : "refresh-outline"}
-            size={15}
-            color={colors.primary}
-          />
-          <Text style={styles.detailText}>
-            {kind === "horario"
-              ? `${reminder.appointmentDate} - ${reminder.appointmentTime}`
-              : `Atendimento em ${reminder.appointmentDate}`}
-          </Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name} numberOfLines={1}>{reminder.name}</Text>
+          {sent && <SentBadge />}
         </View>
-        {kind === "retorno" && (
-          <Text style={styles.returnDate}>Recomendado para {reminder.returnDate}</Text>
+        {kind === "horario" ? (
+          <>
+            <Text style={styles.service}>{reminder.service}</Text>
+            <Text style={styles.detailText}>
+              {reminder.appointmentDate}  •  <Text style={styles.time}>{reminder.appointmentTime}</Text>
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.lastLabel}>
+              Último: <Text style={styles.lastService}>{reminder.service}</Text>
+            </Text>
+            <Text style={styles.detailText}>Atendimento em {reminder.historyDate}</Text>
+          </>
         )}
       </View>
       <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
@@ -37,10 +51,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.white,
     borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
   },
   pressed: { opacity: 0.75 },
   avatar: {
@@ -54,9 +66,21 @@ const styles = StyleSheet.create({
   },
   initials: { color: colors.primary, fontSize: 14, fontWeight: "700" },
   content: { flex: 1, gap: 3 },
-  name: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  service: { color: colors.textMuted, fontSize: 13 },
-  detail: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  name: { color: colors.text, fontSize: 15, fontWeight: "700", flexShrink: 1 },
+  service: { color: reminderColors.gold, fontSize: 13, fontWeight: "500" },
   detailText: { color: colors.textMuted, fontSize: 12 },
-  returnDate: { color: colors.primary, fontSize: 12, marginTop: 2 },
+  time: { color: colors.text, fontWeight: "700" },
+  lastLabel: { color: colors.textMuted, fontSize: 13 },
+  lastService: { color: colors.primary, fontWeight: "700" },
+  sentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: reminderColors.sent,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  sentText: { color: reminderColors.sentText, fontSize: 11, fontWeight: "700" },
 });

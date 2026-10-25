@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow";
 import { ReminderSheet } from "../../components/lembretes/ReminderSheet";
+import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
+import { reminderColors } from "../../components/lembretes/lembretesTheme";
 import { colors, radius, spacing } from "../../constants/theme";
 import { listReminders } from "../../services/api";
 import { mapReminder, parseLocalDate } from "../../data/reminderMapper";
@@ -53,10 +54,7 @@ export default function LembreteHorario() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}><Ionicons name="arrow-back" size={22} color={colors.text} /></Pressable>
-        <View style={styles.headerCopy}><Text style={styles.title}>Lembrete de Horário</Text><Text style={styles.subtitle}>Selecione um cliente para enviar um lembrete personalizado sobre o seu agendamento futuro.</Text></View>
-      </View>
+      <ReminderHeader title="Lembrete de Horário" subtitle="Selecione um cliente para enviar um lembrete personalizado sobre o seu agendamento futuro." fallbackRoute="/lembretes" />
       <View style={styles.searchBox}><Ionicons name="search-outline" size={19} color={colors.textLight} /><TextInput value={search} onChangeText={setSearch} placeholder="Buscar cliente..." placeholderTextColor={colors.textLight} style={styles.searchInput} /></View>
       <View style={styles.filters}>{filters.map((item) => <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, filter === item && styles.activeFilter]}><Text style={[styles.filterText, filter === item && styles.activeFilterText]}>{item}</Text></Pressable>)}</View>
       <FlatList
@@ -65,7 +63,7 @@ export default function LembreteHorario() {
         renderItem={({ item }) => <ReminderClientRow reminder={item} kind="horario" onPress={() => setSelected(item)} />}
         contentContainerStyle={styles.list}
         ListHeaderComponent={loading ? <ActivityIndicator color={colors.primary} style={styles.loading} /> : error ? <Pressable onPress={() => Alert.alert("Erro ao carregar lembretes", error)}><Text style={styles.error}>{error}</Text></Pressable> : null}
-        ListEmptyComponent={!loading ? <View style={styles.empty}><Ionicons name="calendar-outline" size={36} color={colors.primary} /><Text style={styles.emptyTitle}>Nenhum lembrete encontrado</Text><Text style={styles.emptyText}>Não há clientes com agendamento futuro para este filtro.</Text></View> : null}
+        ListEmptyComponent={!loading ? <View style={styles.empty}><View style={styles.emptyIcon}><Ionicons name="calendar-clear-outline" size={38} color={colors.primary} /></View><Text style={styles.emptyTitle}>Nenhum lembrete encontrado</Text><Text style={styles.emptyText}>Não há clientes com atendimentos futuros correspondentes à sua busca ou filtro selecionado.</Text></View> : null}
       />
       <ReminderSheet key={selected?.id ?? "closed"} visible={selected !== null} kind="horario" reminder={selected} onClose={() => setSelected(null)} onSent={load} />
     </View>
@@ -74,21 +72,17 @@ export default function LembreteHorario() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.lg },
-  header: { flexDirection: "row", paddingTop: spacing.lg, paddingBottom: spacing.lg },
-  back: { padding: 3, marginRight: spacing.md },
-  headerCopy: { flex: 1 },
-  title: { color: colors.text, fontSize: 21, fontWeight: "700" },
-  subtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: 4 },
-  searchBox: { height: 46, backgroundColor: colors.white, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderLight, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.md },
+  searchBox: { height: 48, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderLight, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.md },
   searchInput: { flex: 1, color: colors.text, fontSize: 14, marginLeft: spacing.sm },
   filters: { flexDirection: "row", gap: spacing.sm, paddingVertical: spacing.md },
-  filter: { borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: 8 },
-  activeFilter: { backgroundColor: colors.primary, borderColor: colors.primary },
-  filterText: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
+  filter: { borderRadius: radius.pill, backgroundColor: reminderColors.chip, paddingHorizontal: spacing.md, paddingVertical: 8 },
+  activeFilter: { backgroundColor: colors.primary },
+  filterText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   activeFilterText: { color: colors.white },
   list: { paddingBottom: spacing.xl },
   empty: { alignItems: "center", paddingTop: 70, paddingHorizontal: spacing.xl },
-  emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "700", marginTop: spacing.md },
+  emptyIcon: { width: 96, height: 96, borderRadius: 48, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { color: colors.primary, fontSize: 16, fontWeight: "700", marginTop: spacing.md },
   emptyText: { color: colors.textMuted, textAlign: "center", fontSize: 13, lineHeight: 19, marginTop: spacing.sm },
   loading: { marginTop: spacing.md },
   error: { color: colors.danger, textAlign: "center", padding: spacing.md },

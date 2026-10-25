@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import { colors, radius, spacing } from "../../constants/theme";
 import { generateReminderMessage, sendReminder } from "../../services/api";
+import { reminderColors } from "./lembretesTheme";
+import { SentBadge } from "./ReminderClientRow";
 
 // Texto usado só se a geração pela IA falhar, para o usuário não ficar sem mensagem.
 function fallbackMessage(reminder, kind) {
@@ -107,26 +109,23 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
             </View>
 
             <View style={styles.infoCard}>
-              <Text style={styles.label}>PACIENTE</Text>
-              <View style={styles.patientRow}>
-                <View style={styles.avatar}><Text style={styles.initials}>{reminder.initials}</Text></View>
-                <View>
-                  <Text style={styles.patientName}>{reminder.name}</Text>
-                  <Text style={styles.phone}>{reminder.phone}</Text>
-                </View>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>PACIENTE</Text>
+                {reminder.status === "ENVIADO" && <SentBadge />}
               </View>
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>
-                {kind === "horario" ? "AGENDAMENTO" : "HISTÓRICO"}
-              </Text>
-              <Text style={styles.detailStrong}>{reminder.service}</Text>
+              <Text style={styles.patientName}>{reminder.name}</Text>
+              <Text style={styles.phone}>{reminder.phone}</Text>
+              <View style={styles.divider} />
+              <Text style={styles.label}>{kind === "horario" ? "AGENDAMENTO" : "HISTÓRICO"}</Text>
               {kind === "horario" ? (
-                <Text style={styles.detailText}>{reminder.appointmentDate} às {reminder.appointmentTime}</Text>
+                <Text style={styles.detailText}>
+                  <Text style={styles.detailStrong}>{reminder.service}</Text>  •  {reminder.appointmentDate} às {reminder.appointmentTime}
+                </Text>
               ) : (
                 <>
-                  <Text style={styles.detailText}>Realizado em {reminder.historyDate}</Text>
+                  <Text style={styles.detailText}>
+                    <Text style={styles.detailStrong}>{reminder.service}</Text>  •  Realizado em {reminder.historyDate}
+                  </Text>
                   <Text style={styles.returnHighlight}>Retorno recomendado: {reminder.returnDate}</Text>
                 </>
               )}
@@ -151,7 +150,7 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
             )}
             {!!generationError && <Text style={styles.generationError}>{generationError}</Text>}
             <Pressable style={[styles.regenerate, busy && styles.disabled]} onPress={generate} disabled={busy}>
-              <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
+              <Ionicons name="sparkles" size={16} color={reminderColors.gold} />
               <Text style={styles.regenerateText}>Gerar outra mensagem</Text>
             </Pressable>
 
@@ -162,7 +161,7 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
             {!reminder.hasPhone && (
               <Text style={styles.generationError}>Cliente sem telefone cadastrado. Atualize o cadastro para enviar pelo WhatsApp.</Text>
             )}
-            <Pressable style={styles.cancelButton} onPress={onClose}>
+            <Pressable style={styles.cancelButton} onPress={onClose} accessibilityRole="button">
               <Text style={styles.cancelText}>Cancelar</Text>
             </Pressable>
           </ScrollView>
@@ -185,27 +184,26 @@ const styles = StyleSheet.create({
   body: { padding: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
   header: { flexDirection: "row", alignItems: "flex-start", marginBottom: spacing.lg },
   headerCopy: { flex: 1 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "700" },
+  title: { color: colors.primary, fontSize: 21, fontWeight: "700" },
   subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 5 },
   close: { padding: 4, marginLeft: spacing.sm },
-  infoCard: { backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
-  label: { color: colors.textLight, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, marginBottom: spacing.sm },
-  patientRow: { flexDirection: "row", alignItems: "center" },
-  avatar: { width: 42, height: 42, borderRadius: radius.circle, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center", marginRight: spacing.md },
-  initials: { color: colors.primary, fontWeight: "700" },
-  patientName: { color: colors.text, fontWeight: "700", fontSize: 15 },
-  phone: { color: colors.textMuted, fontSize: 13, marginTop: 3 },
-  detailStrong: { color: colors.text, fontSize: 15, fontWeight: "700", marginBottom: 4 },
-  detailText: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
-  returnHighlight: { color: colors.primary, fontSize: 13, fontWeight: "600", marginTop: 6 },
-  messageLabel: { color: colors.text, fontSize: 14, fontWeight: "700", marginBottom: spacing.sm },
-  messageInput: { minHeight: 118, backgroundColor: colors.primaryLight, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 14, lineHeight: 21 },
-  regenerate: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: spacing.md },
-  regenerateText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  sendButton: { height: 50, borderRadius: radius.sm, backgroundColor: "#25D366", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
+  infoCard: { backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.lg },
+  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  divider: { height: 1, backgroundColor: reminderColors.divider, marginVertical: spacing.md },
+  label: { color: colors.textLight, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, marginBottom: spacing.xs },
+  patientName: { color: colors.text, fontWeight: "700", fontSize: 16 },
+  phone: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  detailStrong: { color: colors.primary, fontWeight: "700" },
+  detailText: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  returnHighlight: { color: reminderColors.gold, fontSize: 13, fontWeight: "700", marginTop: spacing.xs },
+  messageLabel: { color: colors.primary, fontSize: 14, fontWeight: "700", marginBottom: spacing.sm },
+  messageInput: { minHeight: 118, backgroundColor: colors.primaryLight, borderRadius: radius.md, borderWidth: 1, borderColor: colors.primary, padding: spacing.md, color: colors.text, fontSize: 14, lineHeight: 21 },
+  regenerate: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: spacing.md },
+  regenerateText: { color: reminderColors.gold, fontSize: 13, fontWeight: "700" },
+  sendButton: { height: 52, borderRadius: radius.md, backgroundColor: reminderColors.whatsapp, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
   disabled: { opacity: 0.6 },
   sendText: { color: colors.white, fontSize: 15, fontWeight: "700" },
-  cancelButton: { alignItems: "center", padding: spacing.md },
+  cancelButton: { height: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", marginTop: spacing.md },
   generating: { alignItems: "center", justifyContent: "center", gap: spacing.sm },
   generatingText: { color: colors.textMuted, fontSize: 13 },
   generationError: { color: colors.danger, fontSize: 12, marginTop: spacing.sm },
