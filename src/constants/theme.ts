@@ -11,6 +11,11 @@ export const colors = {
   border: "#ddd",
   borderLight: "#e5dbee",
   danger: "#E53935",
+  dangerLight: "#FDECEA",
+  success: "#2E7D32",
+  cardBorder: "#E1D3EC",
+  successLight: "#E6F4EA",
+  neutralLight: "#ECE8F0",
 } as const;
 
 export const spacing = {
