@@ -1,20 +1,27 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
-import { Card } from "../../components/Card";
-import { colors, spacing, radius } from "../../constants/theme";
+import { Card } from "@/components/Card";
+import { colors, spacing, radius } from "@/constants/theme";
 
-const menuItems = [
-  { title: "Clientes", subtitle: "Gerenciar", icon: "people-outline" },
-  { title: "Serviços", subtitle: "Gerenciar", icon: "cut-outline" },
-  { title: "Produtos", subtitle: "Gerenciar", icon: "bag-outline" },
-  { title: "Combos", subtitle: "Gerenciar", icon: "gift-outline" },
+type MenuItem = {
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  href?: Href;
+};
+
+const menuItems: MenuItem[] = [
+  { title: "Clientes", subtitle: "Gerenciar", icon: "people-outline", href: "/clientes" },
+  { title: "Serviços", subtitle: "Gerenciar", icon: "cut-outline", href: "/servicos" },
+  { title: "Produtos", subtitle: "Gerenciar", icon: "bag-outline", href: "/produtos" },  
+  { title: "Combos", subtitle: "Gerenciar", icon: "gift-outline", href: "/combos" },
   { title: "Ordens de Serv.", subtitle: "Gerenciar", icon: "document-text-outline" },
   { title: "Dashboard", subtitle: "Gerenciar", icon: "trending-up-outline" },
   { title: "Funcionários", subtitle: "Gerenciar", icon: "person-outline" },
   { title: "Custos", subtitle: "Gerenciar", icon: "cash-outline" },
   { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline" },
-] as const;
+]; 
 
 export default function Home() {
   return (
@@ -45,7 +52,7 @@ export default function Home() {
             title={item.title}
             subtitle={item.subtitle}
             icon={item.icon}
-            onPress={item.title === "Clientes" ? () => router.push("/clientes") : undefined}
+            onPress={item.href ? () => router.push(item.href!) : undefined}
           />
         ))}
       </View>

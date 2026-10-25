@@ -16,6 +16,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LabeledInput } from "../components/LabeledInput";
 import { PasswordInput } from "../components/PasswordInput";
 import { colors, radius, spacing, typography } from "../constants/theme";
+import { Button } from "@/components/Button";
+import { useToast } from "@/components/ToastProvider";
+import { useAuth } from "@/context/AuthContext";
+import { getErrorMessage } from "@/services/api";
 
 export default function HomeScreen() {
   const [email, setEmail] = useState("");
@@ -36,10 +40,30 @@ export default function HomeScreen() {
     };
   }, []);
 
-  function handleLogin() {
-    console.log(email, senha);
-    router.replace("/(autenticado)/home");
+const { signIn } = useAuth();
+const { showToast } = useToast();
+const [enviando, setEnviando] = useState(false);
+
+async function handleLogin() {
+  if (!email.trim() || !senha) {
+    showToast("Informe e-mail e senha", "error");
+    return;
   }
+
+  const credenciaisInvalidas = "E-mail ou senha inválidos";
+  try {
+    setEnviando(true);
+    await signIn(email.trim(), senha);
+    router.replace("/(autenticado)/home");
+  } catch (e) {
+    showToast(
+      getErrorMessage(e, { 400: credenciaisInvalidas, 401: credenciaisInvalidas, 403: credenciaisInvalidas }),
+      "error"
+    );
+  } finally {
+    setEnviando(false);
+  }
+}
 
   return (
     <KeyboardAvoidingView
@@ -100,9 +124,7 @@ export default function HomeScreen() {
 
           {/* Botão */}
           <View style={styles.bottomContainer}>
-            <Pressable style={styles.botao} onPress={handleLogin}>
-              <Text style={styles.textoBotao}>Entrar</Text>
-            </Pressable>
+            <Button title="Entrar" pill loading={enviando} onPress={handleLogin} />
 
             <Text style={styles.cadastroTexto}>
               Não tem conta?{" "}
