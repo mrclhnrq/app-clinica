@@ -62,6 +62,10 @@ export default function AutenticadoLayout() {
               {/* pasta de combos: rota existe, mas não vira uma aba */}
               <Tabs.Screen name="combos" options={{ href: null }} />
               <Tabs.Screen name="funcionarios" options={{ href: null }} />
+              {/* jornada de mensagens/lembretes: rotas existem, mas não viram abas */}
+              <Tabs.Screen name="lembretes" options={{ href: null }} />
+              <Tabs.Screen name="lembrete-horario" options={{ href: null }} />
+              <Tabs.Screen name="lembrete-retorno" options={{ href: null }} />
             </Tabs>
           </ClientesProvider>
         </CombosProvider>

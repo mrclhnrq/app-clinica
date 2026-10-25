@@ -22,7 +22,7 @@ const menuItems: MenuItem[] = [
   { title: "Dashboard", subtitle: "Gerenciar", icon: "trending-up-outline" },
   { title: "Funcionários", subtitle: "Gerenciar", icon: "person-outline" },
   { title: "Custos", subtitle: "Gerenciar", icon: "cash-outline" },
-  { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline" },
+  { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline", href: "/lembretes" },
 ]; 
 
 export default function Home() {

@@ -25,6 +25,31 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Mensagens e lembretes
+
+As telas de mensagens usam a API Spring Boot do backend. Inicie o backend na
+pasta `backend/esteticaFernandaLima` com `.\mvnw.cmd spring-boot:run` e depois
+inicie o Expo:
+
+```bash
+npx expo start
+```
+
+O endereço da API vem de `EXPO_PUBLIC_API_URL` no `.env` (copie o `env.example`):
+`http://localhost:8080` na web, ou o IP da máquina no celular/emulador.
+
+As rotas integradas são `/lembretes`, `/lembrete-horario` e
+`/lembrete-retorno`. Ao tocar em um cliente, o app pede ao backend a mensagem
+gerada pela IA (`POST /lembretes/{id}/gerar`); o texto pode ser editado ou
+gerado de novo. Em "Enviar mensagem", o app registra o envio com o texto
+revisado (`POST /lembretes/{id}/enviar`) e abre o `whatsappUrl` devolvido: o
+WhatsApp abre na conversa do cliente com a mensagem digitada, e o envio final
+é feito manualmente.
+
+As chamadas ficam em `src/services/lembretesApi.js` e usam o cliente `api`
+(axios) de `src/services/api.ts`, que já envia o token JWT do login do app.
+Configure `EXPO_PUBLIC_API_URL` no `.env` (veja o `env.example`).
+
 ## Get a fresh project
 
 When you're ready, run:

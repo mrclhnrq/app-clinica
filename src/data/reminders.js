@@ -1,0 +1,58 @@
+export const scheduleReminders = [
+  {
+    id: "schedule-1",
+    initials: "MS",
+    name: "Maria Silva Santos",
+    phone: "(11) 99999-1234",
+    service: "Limpeza de pele",
+    appointmentDate: "Hoje, 14 de maio",
+    appointmentTime: "14:30",
+  },
+  {
+    id: "schedule-2",
+    initials: "JS",
+    name: "João da Silva",
+    phone: "(11) 98888-2345",
+    service: "Massagem relaxante",
+    appointmentDate: "Amanhã, 15 de maio",
+    appointmentTime: "09:00",
+  },
+  {
+    id: "schedule-3",
+    initials: "AC",
+    name: "Ana Carolina Oliveira",
+    phone: "(11) 97777-3456",
+    service: "Avaliação facial",
+    appointmentDate: "20 de maio",
+    appointmentTime: "16:00",
+  },
+];
+
+export const returnReminders = [
+  {
+    id: "return-1",
+    initials: "RC",
+    name: "Rafaela Costa",
+    phone: "(11) 96666-4567",
+    service: "Peeling facial",
+    appointmentDate: "08 de maio",
+    appointmentTime: "10:00",
+    historyService: "Peeling facial",
+    historyDate: "08 de maio",
+    historyNotes: "Acompanhar evolução da pele após o procedimento.",
+    returnDate: "22 de maio",
+  },
+  {
+    id: "return-2",
+    initials: "BL",
+    name: "Beatriz Lima",
+    phone: "(11) 95555-5678",
+    service: "Microagulhamento",
+    appointmentDate: "02 de maio",
+    appointmentTime: "15:30",
+    historyService: "Microagulhamento",
+    historyDate: "02 de maio",
+    historyNotes: "Reavaliar resultado e indicar próxima sessão.",
+    returnDate: "30 de maio",
+  },
+];
