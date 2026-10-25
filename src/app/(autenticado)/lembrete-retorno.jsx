@@ -5,7 +5,7 @@ import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow"
 import { ReminderSheet } from "../../components/lembretes/ReminderSheet";
 import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
 import { colors, radius, spacing } from "../../constants/theme";
-import { listReminders } from "../../services/api";
+import { listReminders } from "@/services/lembretesApi";
 import { mapReminder } from "../../data/reminderMapper";
 
 export default function LembreteRetorno() {

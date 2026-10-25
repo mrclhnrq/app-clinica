@@ -35,14 +35,8 @@ inicie o Expo:
 npx expo start
 ```
 
-O app usa `http://localhost:8080` no web e iOS, e
-`http://10.0.2.2:8080` no emulador Android. Para um celular físico, informe o
-IP da máquina que executa o backend antes de iniciar o Expo:
-
-```powershell
-$env:EXPO_PUBLIC_API_URL="http://192.168.0.10:8080"
-npx expo start
-```
+O endereço da API vem de `EXPO_PUBLIC_API_URL` no `.env` (copie o `env.example`):
+`http://localhost:8080` na web, ou o IP da máquina no celular/emulador.
 
 As rotas integradas são `/lembretes`, `/lembrete-horario` e
 `/lembrete-retorno`. Ao tocar em um cliente, o app pede ao backend a mensagem
@@ -52,14 +46,9 @@ revisado (`POST /lembretes/{id}/enviar`) e abre o `whatsappUrl` devolvido: o
 WhatsApp abre na conversa do cliente com a mensagem digitada, e o envio final
 é feito manualmente.
 
-O backend exige token JWT. O `src/services/api.js` envia o token salvo pelo
-`login(email, senha)`; enquanto a tela de login não chama a API, dá para testar
-informando um token obtido no `POST /usuarios/login`:
-
-```powershell
-$env:EXPO_PUBLIC_API_TOKEN="cole-o-token-aqui"
-npx expo start
-```
+As chamadas ficam em `src/services/lembretesApi.js` e usam o cliente `api`
+(axios) de `src/services/api.ts`, que já envia o token JWT do login do app.
+Configure `EXPO_PUBLIC_API_URL` no `.env` (veja o `env.example`).
 
 ## Get a fresh project
 

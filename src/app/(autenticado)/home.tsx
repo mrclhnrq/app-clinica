@@ -1,22 +1,33 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
-import { Card } from "../../components/Card";
-import { colors, spacing, radius } from "../../constants/theme";
+import { Card } from "@/components/Card";
+import { colors, spacing, radius } from "@/constants/theme";
+import { useAuth } from "@/context/AuthContext";
+import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
 
-const menuItems = [
-  { title: "Clientes", subtitle: "Gerenciar", icon: "people-outline" },
-  { title: "Serviços", subtitle: "Gerenciar", icon: "cut-outline" },
-  { title: "Produtos", subtitle: "Gerenciar", icon: "bag-outline" },
-  { title: "Combos", subtitle: "Gerenciar", icon: "gift-outline" },
+type MenuItem = {
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  href?: Href;
+};
+
+const menuItems: MenuItem[] = [
+  { title: "Clientes", subtitle: "Gerenciar", icon: "people-outline", href: "/clientes" },
+  { title: "Serviços", subtitle: "Gerenciar", icon: "cut-outline", href: "/servicos" },
+  { title: "Produtos", subtitle: "Gerenciar", icon: "bag-outline", href: "/produtos" },  
+  { title: "Combos", subtitle: "Gerenciar", icon: "gift-outline", href: "/combos" },
   { title: "Ordens de Serv.", subtitle: "Gerenciar", icon: "document-text-outline" },
   { title: "Dashboard", subtitle: "Gerenciar", icon: "trending-up-outline" },
   { title: "Funcionários", subtitle: "Gerenciar", icon: "person-outline" },
   { title: "Custos", subtitle: "Gerenciar", icon: "cash-outline" },
-  { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline" },
-] as const;
+  { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline", href: "/lembretes" },
+]; 
 
 export default function Home() {
+  const { user } = useAuth();
+
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -32,9 +43,19 @@ export default function Home() {
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
             <View style={styles.notifDot} />
           </Pressable>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={20} color={colors.white} />
-          </View>
+          <Pressable
+            style={styles.avatar}
+            onPress={() => router.push("/mais")}
+            accessibilityRole="button"
+            accessibilityLabel="Meu perfil"
+            hitSlop={6}
+          >
+            {user ? (
+              <AvatarUsuario nome={user.nome} foto={user.fotoPerfil} size={38} fundo={colors.gold} />
+            ) : (
+              <Ionicons name="person" size={20} color={colors.white} />
+            )}
+          </Pressable>
         </View>
       </View>
 
@@ -45,13 +66,7 @@ export default function Home() {
             title={item.title}
             subtitle={item.subtitle}
             icon={item.icon}
-            onPress={
-              item.title === "Clientes"
-                ? () => router.push("/clientes")
-                : item.title === "Lembretes"
-                  ? () => router.push("/lembretes")
-                  : undefined
-            }
+            onPress={item.href ? () => router.push(item.href!) : undefined}
           />
         ))}
       </View>

@@ -5,7 +5,7 @@ import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
 import { colors, spacing } from "../../constants/theme";
 import { useEffect, useState } from "react";
 import { ActivityIndicator } from "react-native";
-import { listReminders } from "../../services/api";
+import { listReminders } from "@/services/lembretesApi";
 import { mapReminder } from "../../data/reminderMapper";
 
 export default function Lembretes() {

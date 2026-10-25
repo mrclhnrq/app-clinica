@@ -6,7 +6,7 @@ import { ReminderSheet } from "../../components/lembretes/ReminderSheet";
 import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
 import { reminderColors } from "../../components/lembretes/lembretesTheme";
 import { colors, radius, spacing } from "../../constants/theme";
-import { listReminders } from "../../services/api";
+import { listReminders } from "@/services/lembretesApi";
 import { mapReminder, parseLocalDate } from "../../data/reminderMapper";
 
 const filters = ["Hoje", "Amanhã", "Próximos 7 dias"];

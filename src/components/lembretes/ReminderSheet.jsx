@@ -15,7 +15,7 @@ import {
   Alert,
 } from "react-native";
 import { colors, radius, spacing } from "../../constants/theme";
-import { generateReminderMessage, sendReminder } from "../../services/api";
+import { generateReminderMessage, sendReminder } from "@/services/lembretesApi";
 import { reminderColors } from "./lembretesTheme";
 import { SentBadge } from "./ReminderClientRow";
 
