@@ -1,4 +1,5 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "@/components/ToastProvider";
 import { setAuthToken, setUnauthorizedHandler } from "@/services/api";
 import * as authService from "@/services/authService";
 import * as usuarioService from "@/services/usuarioService";
@@ -23,6 +24,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UsuarioLogado | null>(null);
+  const { showToast } = useToast();
+  const logado = useRef(false);
+  useEffect(() => {
+    logado.current = !!user;
+  }, [user]);
 
   const signOut = useCallback(() => {
     setAuthToken(null);
@@ -49,11 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // o JWT usa o e-mail como identificador: ao trocar o e-mail o backend devolve um token novo
   const trocarToken = useCallback((token: string) => setAuthToken(token), []);
 
-  // se qualquer requisição voltar 401, o interceptor chama signOut
+  // se qualquer requisição voltar 401 (token expirado/inválido), avisa e volta ao login
   useEffect(() => {
-    setUnauthorizedHandler(signOut);
+    setUnauthorizedHandler(() => {
+      if (!logado.current) return; // várias requisições podem falhar juntas: avisa uma vez só
+      logado.current = false;
+      showToast("Sessão expirada. Faça login novamente.", "error"); // mesmo texto do getErrorMessage
+      signOut();
+    });
     return () => setUnauthorizedHandler(null);
-  }, [signOut]);
+  }, [signOut, showToast]);
 
   const value = useMemo(
     () => ({ user, signIn, signOut, atualizarUsuario, trocarToken }),

@@ -3,7 +3,10 @@ import { View, TextInput, Pressable, StyleSheet, TextInputProps } from "react-na
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, typography } from "../constants/theme";
 
-type PasswordInputProps = Omit<TextInputProps, "secureTextEntry"> & { error?: boolean };
+type PasswordInputProps = Omit<TextInputProps, "secureTextEntry"> & {
+  error?: boolean;
+  ref?: React.Ref<TextInput>; // React 19: ref chega como prop e vai para o TextInput via ...rest
+};
 
 export function PasswordInput({ style, error, ...rest }: PasswordInputProps) {
   const [visivel, setVisivel] = useState(false);
