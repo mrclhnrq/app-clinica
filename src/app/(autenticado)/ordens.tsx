@@ -1,12 +1,12 @@
 import { useFocusEffect } from "expo-router";
-import { Image } from "expo-image";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   Alert, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OrderIcon } from "../../components/ordens/OrderIcon";
+import { OrderDateTimePicker } from "../../components/ordens/OrderDateTimePicker";
 
 import { itemCatalog, itemName, listOrders, loadOrderRelations, orderPayload, orderRequest, orderSchedule, orderStatusLabels, updateOrderStatus, orderRelationsError,
   type ServiceOrder, type OrderRelations, type OrderItem, type OrderPayload, type OrderStatus } from "../../services/ordens";
@@ -187,7 +187,6 @@ export default function OrdensScreen() {
   return (
     <View style={styles.background}>
       <SafeAreaView edges={["bottom"]} style={[styles.screen, screen === "delete" && styles.dim]}>
-        {Platform.OS === "web" && screen !== "delete" && <OrderStatusBar />}
         {screen === "list" && <OrderList
           orders={orders} loading={loading || busy} error={error || relationError} onRetry={() => void refresh()}
           onEdit={order => void open(order, true)} search={search} onSearch={setSearch}
@@ -200,22 +199,6 @@ export default function OrdensScreen() {
       </SafeAreaView>
     </View>
   );
-}
-
-function OrderStatusBar() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return <View style={styles.statusBar}>
-    <Text style={styles.statusTime}>{now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</Text>
-    <View style={styles.statusIndicators} accessibilityElementsHidden aria-hidden>
-      <Image source={require("../../../assets/images/ordens/signal.svg")} style={{ width: 17, height: 12 }} />
-      <Image source={require("../../../assets/images/ordens/wifi.svg")} style={{ width: 16, height: 12 }} />
-      <Image source={require("../../../assets/images/ordens/battery.svg")} style={{ width: 25, height: 12 }} />
-    </View>
-  </View>;
 }
 
 function StatusBadge({ status, detail = false, onPress }: { status: Status; detail?: boolean; onPress?: () => void }) {
@@ -372,6 +355,7 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
   const [userId, setUserId] = useState(original?.usuarioId ?? 0);
   const [items, setItems] = useState<OrderItem[]>(original?.itens ?? []);
   const [picker, setPicker] = useState<"client" | "user" | "service" | "product" | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const submitting = useRef(false);
   function add(id: number, combo = false) {
     if (combo) {
@@ -403,12 +387,18 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
       ...(picker === "service" ? relations.combos.filter(item => item.ativo).map(item => ({ id: item.idCombo, name: item.nome + " — " + money(item.valorFinal), combo: true })) : [])];
   function togglePicker(value: typeof picker) { if (!busy) setPicker(current => current === value ? null : value); }
   function choices(kind: typeof picker) {
-    return picker === kind && <View>{options.length === 0 && <Text style={styles.empty}>Nenhum registro disponível.</Text>}{options.map(option =>
-      <Pressable key={String(option.combo) + option.id} disabled={busy} style={styles.select} onPress={() => {
+    return picker === kind && <ScrollView style={[styles.optionsList, (kind === "service" || kind === "product") && styles.catalogOptions]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+      {options.length === 0 && <Text style={styles.empty}>Nenhum registro disponível.</Text>}{options.map((option, index) => {
+        const selected = kind === "client" ? option.id === clientId : kind === "user" && option.id === userId;
+        return <Pressable key={String(option.combo) + option.id} accessibilityRole="button" accessibilityState={{ selected, disabled: busy }} disabled={busy}
+          style={[styles.optionRow, index > 0 && styles.optionDivider, selected && styles.optionSelected]} onPress={() => {
         if (kind === "client") { setClientId(option.id); setPicker(null); }
         else if (kind === "user") { setUserId(option.id); setPicker(null); }
         else add(option.id, option.combo);
-      }}><Text style={styles.placeholder}>{option.name}</Text></Pressable>)}</View>;
+      }}><Text style={[styles.optionText, selected && styles.optionSelectedText]}>{option.name}</Text>
+          {selected && <Text style={styles.optionCheck} accessibilityElementsHidden>✓</Text>}
+        </Pressable>;
+      })}</ScrollView>;
   }
   return <KeyboardAvoidingView style={styles.scroll} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <View style={styles.formHeader}>
@@ -419,16 +409,22 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
     </View>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
       {Boolean(error) && <Text style={styles.empty} onPress={busy ? undefined : onRetry}>{error} Toque para tentar novamente.</Text>}
-      <Field label="Cliente"><Pressable accessibilityRole="button" accessibilityLabel="Selecione o cliente"
-        onPress={() => togglePicker("client")} style={styles.select}>
-        <Text style={styles.placeholder}>{relations.clients.find(client => client.id === clientId)?.nomeCompleto || (clientId ? `Cliente #${clientId}` : "Selecione o cliente...")}</Text><OrderIcon name="chevron" size={18} />
-      </Pressable></Field>
-      {choices("client")}
-      <Field label="Funcionário"><Pressable accessibilityRole="button" accessibilityLabel="Selecione o funcionário"
-        onPress={() => togglePicker("user")} style={styles.select}>
-        <Text style={styles.placeholder}>{relations.users.find(user => user.id === userId)?.nomeCompleto || relations.users.find(user => user.id === userId)?.nome || (userId ? `Responsável #${userId}` : "Selecione o funcionário...")}</Text><OrderIcon name="chevron" size={18} />
-      </Pressable></Field>
-      {choices("user")}
+      <Field label="Cliente"><View style={styles.selectGroup}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Selecione o cliente" accessibilityState={{ expanded: picker === "client", disabled: busy }} disabled={busy}
+          onPress={() => togglePicker("client")} style={[styles.select, styles.groupTrigger]}>
+          <Text numberOfLines={1} style={[styles.selectionText, !clientId && styles.placeholder]}>{relations.clients.find(client => client.id === clientId)?.nomeCompleto || (clientId ? `Cliente #${clientId}` : "Selecione o cliente...")}</Text>
+          <View style={picker === "client" && styles.chevronOpen}><OrderIcon name="chevron" size={18} /></View>
+        </Pressable>
+        {choices("client")}
+      </View></Field>
+      <Field label="Funcionário"><View style={styles.selectGroup}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Selecione o funcionário" accessibilityState={{ expanded: picker === "user", disabled: busy }} disabled={busy}
+          onPress={() => togglePicker("user")} style={[styles.select, styles.groupTrigger]}>
+          <Text numberOfLines={1} style={[styles.selectionText, !userId && styles.placeholder]}>{relations.users.find(user => user.id === userId)?.nomeCompleto || relations.users.find(user => user.id === userId)?.nome || (userId ? `Responsável #${userId}` : "Selecione o funcionário...")}</Text>
+          <View style={picker === "user" && styles.chevronOpen}><OrderIcon name="chevron" size={18} /></View>
+        </Pressable>
+        {choices("user")}
+      </View></Field>
       {([false, true] as const).map(product => <View key={String(product)}>
         <DraftItem label={product ? "Produtos" : "Serviços"} name="" price="" visible={false} onRemove={() => {}} onAdd={() => togglePicker(product ? "product" : "service")} />
         {choices(product ? "product" : "service")}
@@ -445,11 +441,13 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
           <View style={[styles.toggleKnob, !needsReturn && styles.toggleKnobOff]} />
         </Pressable>
       </View>
-      <Field label={needsReturn ? "Data do retorno" : "Data e hora do atendimento"}><View style={styles.select}>
-        <TextInput accessibilityLabel={needsReturn ? "Data do retorno" : "Data e hora do atendimento"} placeholder={needsReturn ? "DD/MM/AAAA" : "DD/MM/AAAA HH:mm"} placeholderTextColor={palette.muted}
-          editable={!busy && !original?.retorno} value={returnDate} onChangeText={setReturnDate} style={styles.dateInput} />
+      <Field label={needsReturn ? "Data do retorno" : "Data e hora do atendimento"}><Pressable style={styles.select}
+        accessibilityRole="button" accessibilityLabel={needsReturn ? "Selecionar data do retorno" : "Selecionar data e hora do atendimento"}
+        accessibilityState={{ disabled: busy || !!original?.retorno, expanded: calendarOpen }} disabled={busy || !!original?.retorno}
+        onPress={() => { setPicker(null); setCalendarOpen(true); }}>
+        <Text style={[styles.dateInput, !returnDate && styles.placeholder]}>{returnDate || (needsReturn ? "Selecione a data" : "Selecione a data e hora")}</Text>
         <OrderIcon name="calendar" size={20} />
-      </View></Field>
+      </Pressable></Field>
       <View style={styles.notesField}><Field label="Observações">
         <TextInput accessibilityLabel="Observações" multiline placeholder="Ex: Paciente possui sensibilidade nos dentes..."
           placeholderTextColor={palette.muted} editable={!busy} maxLength={255} value={notes} onChangeText={setNotes} style={styles.notesInput} />
@@ -460,6 +458,7 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
         <Text style={styles.createText}>{busy ? "Salvando..." : original ? "Salvar Ordem" : "Criar Ordem"}</Text>
       </Pressable>
     </View>
+    {calendarOpen && <OrderDateTimePicker value={returnDate} dateOnly={needsReturn} onConfirm={setReturnDate} onClose={() => setCalendarOpen(false)} />}
   </KeyboardAvoidingView>;
 }
 
@@ -484,9 +483,6 @@ const palette = { background: "#ededf5", title: "#5b2d8e", primary: "#6a3db8", i
 const fontFamily = Platform.select({ web: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", default: undefined });
 const text = { fontFamily, color: palette.ink };
 const styles = StyleSheet.create({
-  statusBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 14, paddingHorizontal: 24 },
-  statusTime: { ...text, fontSize: 15, fontWeight: "600" },
-  statusIndicators: { flexDirection: "row", alignItems: "center", gap: 6 },
   background: { flex: 1, alignItems: "center", backgroundColor: palette.background },
   screen: { flex: 1, width: "100%", maxWidth: 360, backgroundColor: palette.background },
   dim: { backgroundColor: "#7a7a7a" },
@@ -548,6 +544,18 @@ const styles = StyleSheet.create({
   label: { ...text, fontSize: 14, color: palette.label, marginBottom: 6 },
   labelInline: { ...text, fontSize: 14, color: palette.label },
   select: { backgroundColor: "white", borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1.5, borderColor: palette.border },
+  selectGroup: { backgroundColor: "white", borderRadius: 14, borderWidth: 1.5, borderColor: palette.border, overflow: "hidden" },
+  groupTrigger: { borderWidth: 0, borderRadius: 0, gap: 10 },
+  selectionText: { ...text, flex: 1, minWidth: 0, fontSize: 15 },
+  chevronOpen: { transform: [{ rotate: "180deg" }] },
+  optionsList: { maxHeight: 220, borderTopWidth: 1, borderColor: palette.line },
+  catalogOptions: { borderWidth: 1.5, borderColor: palette.border, borderRadius: 14, backgroundColor: "white" },
+  optionRow: { paddingVertical: 12, paddingHorizontal: 14, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10 },
+  optionDivider: { borderTopWidth: 1, borderColor: palette.line },
+  optionSelected: { backgroundColor: "#f0eef8" },
+  optionText: { ...text, flex: 1, fontSize: 15 },
+  optionSelectedText: { color: palette.primary, fontWeight: "600" },
+  optionCheck: { ...text, color: palette.primary, fontSize: 16, fontWeight: "700" },
   placeholder: { ...text, fontSize: 15, color: palette.muted },
   draftHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   addItem: { flexDirection: "row", alignItems: "center", gap: 5 },
