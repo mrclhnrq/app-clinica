@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { Card } from "@/components/Card";
 import { colors, spacing, radius } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { iniciais } from "@/utils/cliente";
+import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
 
 type MenuItem = {
   title: string;
@@ -51,7 +51,7 @@ export default function Home() {
             hitSlop={6}
           >
             {user ? (
-              <Text style={styles.avatarTexto}>{iniciais(user.nome)}</Text>
+              <AvatarUsuario nome={user.nome} foto={user.fotoPerfil} size={38} fundo={colors.gold} />
             ) : (
               <Ionicons name="person" size={20} color={colors.white} />
             )}
@@ -126,6 +126,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarTexto: { color: colors.white, fontWeight: "700", fontSize: 14 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
 });

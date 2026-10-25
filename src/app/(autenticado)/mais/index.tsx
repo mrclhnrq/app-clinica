@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Href, router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ClienteAvatar } from "@/components/clientes/ClienteAvatar";
+import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
 import { useToast } from "@/components/ToastProvider";
 import { colors, radius, spacing, typography } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -34,7 +34,7 @@ export default function MeuPerfil() {
         .then((u) => {
           if (!ativo) return;
           setTelefone(maskTelefone(u.telefone));
-          atualizarUsuario({ nome: u.nome, email: u.email, role: u.role });
+          atualizarUsuario({ nome: u.nome, email: u.email, role: u.role, fotoPerfil: u.fotoPerfil });
         })
         .catch((e) => ativo && showToast(getErrorMessage(e), "error"));
       return () => {
@@ -64,9 +64,7 @@ export default function MeuPerfil() {
       <Text style={styles.titulo}>Meu Perfil</Text>
 
       <View style={styles.identidade}>
-        <View style={styles.avatarBorda}>
-          <ClienteAvatar nome={user.nome} size={88} destaque />
-        </View>
+        <AvatarUsuario nome={user.nome} foto={user.fotoPerfil} size={88} borda />
         <Text style={styles.nome}>{user.nome}</Text>
         <View style={styles.cargo}>
           <Text style={styles.cargoTexto}>{roleLabel(user.role).toUpperCase()}</Text>
@@ -98,7 +96,6 @@ const styles = StyleSheet.create({
   container: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl },
   titulo: { ...typography.title, color: colors.primary },
   identidade: { alignItems: "center", marginTop: spacing.xl, marginBottom: spacing.xl, gap: spacing.xs },
-  avatarBorda: { borderWidth: 3, borderColor: colors.gold, borderRadius: radius.circle, padding: 3 },
   nome: { ...typography.title, color: colors.primary, marginTop: spacing.sm },
   cargo: {
     backgroundColor: colors.primaryLight,
