@@ -50,6 +50,8 @@ export default function Home() {
                 ? () => router.push("/clientes")
                 : item.icon === "cut-outline"
                   ? () => router.push("/servicos")
+                  : item.icon === "document-text-outline"
+                    ? () => router.push("/ordens")
                   : item.icon === "person-outline"
                     ? () => router.push("/funcionarios")
                   : undefined
