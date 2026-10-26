@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { colors, radius, typography } from "@/constants/theme";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, radius, spacing } from "@/constants/theme";
 
-type Props = { value: string; dateOnly: boolean; onConfirm: (value: string) => void; onClose: () => void };
+type Props = { value: string; dateOnly: boolean; title: string; onConfirm: (value: string) => void; onClose: () => void };
 const pad = (value: number) => String(value).padStart(2, "0");
 const weekDays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -18,7 +19,7 @@ function initialDate(value: string) {
   return new Date();
 }
 
-export function OrderDateTimePicker({ value, dateOnly, onConfirm, onClose }: Props) {
+export function OrderDateTimePicker({ value, dateOnly, title, onConfirm, onClose }: Props) {
   const [selected, setSelected] = useState(() => initialDate(value));
   const [month, setMonth] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1, 12));
   const [hour, setHour] = useState(() => pad(selected.getHours()));
@@ -46,11 +47,11 @@ export function OrderDateTimePicker({ value, dateOnly, onConfirm, onClose }: Pro
       <Pressable accessibilityRole="button" accessibilityLabel="Fechar calendário" style={StyleSheet.absoluteFill} onPress={onClose} />
       <View style={styles.dialog} accessibilityViewIsModal>
         <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <Text accessibilityRole="header" style={styles.title}>{dateOnly ? "Data do retorno" : "Data e horário"}</Text>
+          <Text accessibilityRole="header" style={styles.title}>{title}</Text>
           <View style={styles.monthBar}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Mês anterior" onPress={() => moveMonth(-1)} style={styles.arrow}><Text style={styles.arrowText}>‹</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Mês anterior" onPress={() => moveMonth(-1)} style={styles.arrow}><Ionicons name="chevron-back" size={20} color={colors.primary} /></Pressable>
             <Text accessibilityRole="header" style={styles.month}>{monthLabel}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Próximo mês" onPress={() => moveMonth(1)} style={styles.arrow}><Text style={styles.arrowText}>›</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Próximo mês" onPress={() => moveMonth(1)} style={styles.arrow}><Ionicons name="chevron-forward" size={20} color={colors.primary} /></Pressable>
           </View>
           <View style={styles.grid}>
             {weekDays.map(day => <View key={day} style={styles.cell}><Text style={styles.weekDay}>{day}</Text></View>)}
@@ -85,13 +86,13 @@ export function OrderDateTimePicker({ value, dateOnly, onConfirm, onClose }: Pro
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
-  dialog: { width: "100%", maxWidth: 360, maxHeight: "90%", backgroundColor: colors.white, borderRadius: radius.md, padding: 20 },
-  title: { ...typography.title, fontSize: 20, color: colors.primary, marginBottom: 16 },
-  monthBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  dialog: { width: "100%", maxWidth: 380, maxHeight: "90%", backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.lg },
+  title: { color: colors.primary, fontSize: 18, fontWeight: "700", marginBottom: spacing.md },
+  monthBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },
   arrow: { width: 40, height: 40, borderRadius: radius.circle, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" },
   arrowText: { fontSize: 28, color: colors.primary },
-  month: { fontSize: 15, fontWeight: "700", color: colors.textMuted, textTransform: "capitalize" },
+  month: { fontSize: 15, fontWeight: "700", color: colors.text, textTransform: "capitalize" },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: "14.285714%", height: 40, alignItems: "center", justifyContent: "center" },
   weekDay: { fontSize: 12, fontWeight: "600", color: colors.textLight },
@@ -99,17 +100,17 @@ const styles = StyleSheet.create({
   daySelected: { backgroundColor: colors.primary },
   dayText: { fontSize: 14, color: colors.text },
   dayTextSelected: { color: colors.white, fontWeight: "700" },
-  selectedDate: { fontSize: 13, color: colors.primary, textAlign: "center", marginTop: 8 },
-  timeSection: { marginTop: 16 },
-  label: { color: colors.textMuted, fontSize: 14, marginBottom: 8 },
-  timeRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  timeInput: { width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.primaryLight, color: colors.text, fontSize: 20, textAlign: "center", padding: 12 },
+  selectedDate: { fontSize: 13, color: colors.primary, textAlign: "center", marginTop: spacing.sm },
+  timeSection: { marginTop: spacing.lg },
+  label: { color: colors.text, fontSize: 13, marginBottom: spacing.sm, textAlign: "center" },
+  timeRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  timeInput: { width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.white, color: colors.text, fontSize: 20, textAlign: "center", padding: spacing.md },
   colon: { fontSize: 20, fontWeight: "700", color: colors.primary },
-  error: { color: colors.danger, fontSize: 12, textAlign: "center", marginTop: 8 },
-  actions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancel: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, backgroundColor: colors.primaryLight, alignItems: "center" },
-  cancelText: { ...typography.button, fontSize: 15, color: colors.primary },
-  confirm: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center" },
-  confirmText: { ...typography.button, fontSize: 15, color: colors.white },
+  error: { color: colors.danger, fontSize: 12, textAlign: "center", marginTop: spacing.sm },
+  actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
+  cancel: { flex: 1, padding: spacing.md, borderRadius: radius.sm, backgroundColor: colors.primaryLight, alignItems: "center" },
+  cancelText: { fontSize: 15, fontWeight: "600", color: colors.primary },
+  confirm: { flex: 1, padding: spacing.md, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center" },
+  confirmText: { fontSize: 15, fontWeight: "600", color: colors.white },
   disabled: { opacity: 0.5 },
 });

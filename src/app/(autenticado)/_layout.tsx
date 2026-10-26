@@ -55,6 +55,9 @@ export default function AutenticadoLayout() {
                   tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" size={size} color={color} />,
                 }}
               />
+              {/* dashboard e custos: acessados pelo menu da Home, sem aba própria */}
+              <Tabs.Screen name="dashboard" options={{ href: null }} />
+              <Tabs.Screen name="custos" options={{ href: null }} />
               {/* pasta de serviços: rota existe, mas não vira uma aba */}
               <Tabs.Screen name="servicos" options={{ href: null }} />
               {/* pasta de produtos: rota existe, mas não vira uma aba */}

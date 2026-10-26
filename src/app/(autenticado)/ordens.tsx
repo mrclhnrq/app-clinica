@@ -1,189 +1,178 @@
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import {
-  Alert, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView,
+  StyleSheet, Switch, Text, TextInput, View,
+} from "react-native";
+import { Button } from "@/components/Button";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { ScreenFooter } from "@/components/ScreenFooter";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { SearchInput } from "@/components/SearchInput";
+import { SeletorItensModal, type OpcaoSeletor } from "@/components/SeletorItensModal";
+import { Tag } from "@/components/Tag";
 import { useToast } from "@/components/ToastProvider";
+import { OrderDateTimePicker } from "@/components/ordens/OrderDateTimePicker";
+import { SeletorUnicoModal } from "@/components/ordens/SeletorUnicoModal";
 import { colors, radius, spacing, typography } from "@/constants/theme";
-import { OrderIcon } from "../../components/ordens/OrderIcon";
-import { OrderDateTimePicker } from "../../components/ordens/OrderDateTimePicker";
+import { useAuth } from "@/context/AuthContext";
+import {
+  deleteOrder, emptyRelations, getOrder, isCombo, isProduct, itemName, itemTotals, listOrders, loadOrderRelations,
+  nowTime, orderPayload, orderRelationsError, orderStatusLabels, orderTotals, saveOrder, toDateInput,
+  toDateTimeInput, updateOrderStatus, type OrderItem, type OrderPayload, type OrderRelations, type OrderStatus,
+  type ServiceOrder,
+} from "@/services/ordens";
+import { toRole } from "@/types/usuario";
 
-import { itemCatalog, itemName, listOrders, loadOrderRelations, orderPayload, orderRequest, orderSchedule, orderStatusLabels, updateOrderStatus, orderRelationsError,
-  type ServiceOrder, type OrderRelations, type OrderItem, type OrderPayload, type OrderStatus } from "../../services/ordens";
+type Screen = "list" | "detail" | "form";
 
-type Screen = "list" | "detail" | "add" | "edit" | "delete";
-type Status = "Pendente" | "Em Andamento" | "Concluída" | "Cancelada" | "Não informado";
-type Order = ServiceOrder & { client: string; date: string; amount: string; statusLabel: Status };
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const formatDate = (value: string) => {
-  if (!value) return "Não informado";
-  const date = new Date(value.slice(0, 10) + "T12:00:00");
-  const month = date.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
-  return `${String(date.getDate()).padStart(2, "0")} ${month.charAt(0).toUpperCase() + month.slice(1)} ${date.getFullYear()}`;
-};
-const emptyRelations: OrderRelations = { clients: [], users: [], catalog: [], combos: [] };
-// avisos usam o Toast do app (mesmo padrão das outras telas); sem Toast disponível, cai no alerta nativo
-let showToast: ((message: string, type?: "success" | "error") => void) | null = null;
-function notify(message: string, type: "success" | "error" = "error") {
-  if (showToast) return showToast(message, type);
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Ordens de Serviço", message);
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Não foi possível concluir a operação.");
+const normalize = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+function formatDate(iso?: string | null) {
+  if (!iso) return "Não informado";
+  const [ano, mes, dia] = iso.slice(0, 10).split("-");
+  return `${dia} ${MESES[Number(mes) - 1] ?? mes} ${ano}`;
 }
-const errorMessage = (error: unknown) => error instanceof Error ? error.message : "Não foi possível concluir a operação.";
-const statusColors: Record<Status, { background: string; color: string }> = {
-  "Não informado": { background: colors.neutralLight, color: colors.textMuted },
-  Pendente: { background: "#fef8e6", color: colors.gold },
-  "Em Andamento": { background: "#e8f0ff", color: "#3a5fd4" },
-  Concluída: { background: colors.successLight, color: colors.success },
-  Cancelada: { background: colors.dangerLight, color: colors.danger },
+const formatTime = (iso?: string | null) => (iso && iso.length >= 16 ? iso.slice(11, 16) : "");
+
+const STATUS_CORES: Record<OrderStatus, { bg: string; text: string }> = {
+  PENDENTE: { bg: "#FFF5E0", text: colors.gold },
+  EM_ANDAMENTO: { bg: colors.primaryLight, text: colors.primary },
+  CONCLUIDA: { bg: colors.successLight, text: colors.success },
+  CANCELADA: { bg: colors.dangerLight, text: colors.danger },
 };
 
-function scheduleInput(order?: ServiceOrder) {
-  if (!order?.dt_hora) return "";
-  const [year, month, day] = order.dt_hora.slice(0, 10).split("-");
-  return `${day}/${month}/${year}${order.retorno ? "" : ` ${order.dt_hora.slice(11, 19)}`}`;
+function StatusBadge({ status }: { status: OrderStatus }) {
+  const cor = STATUS_CORES[status] ?? STATUS_CORES.PENDENTE;
+  return (
+    <View style={[styles.badge, { backgroundColor: cor.bg }]}>
+      <Text style={[styles.badgeText, { color: cor.text }]}>{orderStatusLabels[status] ?? "Pendente"}</Text>
+    </View>
+  );
 }
+
+const clientName = (order: ServiceOrder, relations: OrderRelations) =>
+  relations.clients.find((c) => c.id === order.clienteId)?.nomeCompleto ?? `Cliente #${order.clienteId}`;
 
 export default function OrdensScreen() {
-  // nos testes automáticos não existe ToastProvider: aí os avisos usam o alerta nativo
-  showToast = typeof useToast === "function" ? useToast().showToast : null;
+  const { user } = useAuth();
+  const admin = toRole(user?.role) === "ADMIN";
+  const { showToast } = useToast();
+
   const [screen, setScreen] = useState<Screen>("list");
-  const [selected, setSelected] = useState<Order | null>(null);
-  const [search, setSearch] = useState("");
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [selected, setSelected] = useState<ServiceOrder | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [relations, setRelations] = useState<OrderRelations>(emptyRelations);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [relationError, setRelationError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<"delete" | "cancel" | null>(null);
   const lock = useRef(false);
-  const back = useCallback(() => { if (!lock.current) setScreen(current => current === "delete" || current === "edit" ? "detail" : "list"); }, []);
-  const decorate = useCallback((order: ServiceOrder, data: OrderRelations): Order => ({
-    ...order, client: data.clients.find(client => client.id === order.clienteId)?.nomeCompleto ?? ("Cliente #" + order.clienteId),
-    date: order.dt_hora ? `${formatDate(order.dt_hora)} · ${order.dt_hora.slice(11, 16)}` : formatDate(order.dataCriacao),
-    amount: money(order.valorFinal), statusLabel: (orderStatusLabels[order.status] ?? "Não informado") as Status,
-  }), []);
+
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true); setError("");
-    const [orderResult, relatedResult] = await Promise.allSettled([listOrders(signal), loadOrderRelations(signal)]);
+    setLoading(true);
+    setError("");
+    const [orderResult, relatedResult] = await Promise.allSettled([
+      listOrders(signal),
+      loadOrderRelations({ admin, signal }),
+    ]);
     if (signal?.aborted) return;
-    const data = relatedResult.status === "fulfilled" ? relatedResult.value : emptyRelations;
-    setRelations(data);
-    setRelationError(relatedResult.status === "rejected" ? errorMessage(relatedResult.reason) : orderRelationsError(data));
-    if (orderResult.status === "fulfilled") setOrders(orderResult.value.map(order => decorate(order, data)));
+    if (relatedResult.status === "fulfilled") setRelations(relatedResult.value);
+    if (orderResult.status === "fulfilled") setOrders(orderResult.value);
     else setError(errorMessage(orderResult.reason));
     setLoading(false);
-  }, [decorate]);
+  }, [admin]);
+
   useFocusEffect(useCallback(() => {
     const controller = new AbortController();
     void refresh(controller.signal);
     return () => controller.abort();
   }, [refresh]));
-  async function open(order: Order, editing = false) {
+
+  // executa uma ação por vez (evita toque duplo enquanto a API responde)
+  async function run(action: () => Promise<void>) {
     if (lock.current) return;
-    lock.current = true; setBusy(true);
+    lock.current = true;
+    setBusy(true);
     try {
-      const [result, relatedResult] = await Promise.allSettled([
-        orderRequest<ServiceOrder>("/ordens-servico/" + order.id), loadOrderRelations(undefined, order),
-      ]);
-      if (result.status === "rejected") throw result.reason;
-      const data = relatedResult.status === "fulfilled" ? relatedResult.value : relations;
-      setRelations(data);
-      setRelationError(relatedResult.status === "fulfilled" ? orderRelationsError(data) : errorMessage(relatedResult.reason));
-      setSelected(decorate(result.value, data)); setScreen(editing ? "edit" : "detail");
-    } catch (error) { notify(errorMessage(error)); }
-    finally { lock.current = false; setBusy(false); }
+      await action();
+    } catch (e) {
+      showToast(errorMessage(e), "error");
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
+
+  const open = (order: ServiceOrder) => run(async () => {
+    const [atual, dados] = await Promise.all([getOrder(order.id), loadOrderRelations({ admin, order })]);
+    setRelations(dados);
+    setSelected(atual);
+    setScreen("detail");
+  });
+
+  const startNew = () => run(async () => {
+    setRelations(await loadOrderRelations({ admin })); // listas sempre atualizadas ao criar
+    setSelected(null);
+    setEditing(false);
+    setScreen("form");
+  });
+
+  function startEdit() {
+    if (!selected || busy) return;
+    setEditing(true);
+    setScreen("form");
+  }
+
   async function save(payload: OrderPayload) {
-    if (lock.current) throw new Error("Aguarde a operação em andamento e tente salvar novamente.");
-    lock.current = true; setBusy(true);
-    try {
-      const result = await orderRequest<ServiceOrder>(screen === "edit" && selected ? "/ordens-servico/" + selected.id : "/ordens-servico", screen === "edit" ? "PUT" : "POST", payload);
-      setSelected(decorate(result, relations)); setScreen("detail");
-      notify("Ordem salva com sucesso.", "success"); await refresh();
-    } catch (error) { notify(errorMessage(error)); }
-    finally { lock.current = false; setBusy(false); }
-  }
-  async function retryRelations() {
     if (lock.current) return;
-    lock.current = true; setBusy(true);
+    lock.current = true;
+    setBusy(true);
     try {
-      const data = await loadOrderRelations(undefined, selected ?? undefined);
-      setRelations(data); setRelationError(orderRelationsError(data));
-      setOrders(current => current.map(order => decorate(order, data)));
-      setSelected(current => current ? decorate(current, data) : null);
-    } catch (error) { setRelationError(errorMessage(error)); }
-    finally { lock.current = false; setBusy(false); }
-  }
-  async function remove() {
-    if (lock.current || !selected) return;
-    lock.current = true; setBusy(true);
-    try {
-      await orderRequest("/ordens-servico/" + selected.id, "DELETE");
-      setOrders(current => current.filter(order => order.id !== selected.id));
-      setSelected(null); setScreen("list"); notify("Ordem excluída com sucesso.", "success");
-    } catch (error) { notify(errorMessage(error)); }
-    finally { lock.current = false; setBusy(false); }
+      const saved = await saveOrder(payload, editing && selected ? selected.id : undefined);
+      setSelected(saved);
+      setScreen("detail");
+      showToast(editing ? "Ordem de serviço atualizada." : "Ordem de serviço criada.");
+      void refresh();
+    } catch (e) {
+      showToast(errorMessage(e), "error"); // continua no formulário com os dados preenchidos
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
 
-  async function changeStatus(status: OrderStatus, changeTime = false) {
-    if (lock.current || !selected) return;
-    lock.current = true; setBusy(true);
-    try {
-      const now = new Date();
-      const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(value => String(value).padStart(2, "0")).join(":");
-      const dtHora = changeTime ? `${selected.dt_hora.slice(0, 10)}T${time}` : undefined;
-      const result = await updateOrderStatus(selected.id, status, dtHora);
-      const updated = decorate(result, relations);
-      setSelected(updated); setOrders(current => current.map(order => order.id === updated.id ? updated : order));
-    } catch (error) { notify(errorMessage(error)); }
-    finally { lock.current = false; setBusy(false); }
-  }
-  function selectStatus(status: OrderStatus) {
-    if (busy || !selected) return;
-    if (selected.retorno && selected.dt_hora.slice(11, 19) === "00:00:00" && (status === "EM_ANDAMENTO" || status === "CANCELADA")) {
-      const message = "Deseja registrar o horário atual neste retorno? A data cadastrada será preservada.";
-      if (Platform.OS === "web") {
-        const choice = window.prompt(`${message}\n1: Usar horário atual\n2: Manter 00:00`);
-        if (choice === "1" || choice === "2") void changeStatus(status, choice === "1");
-      }
-      else Alert.alert("Horário do retorno", message, [
-        { text: "Voltar", style: "cancel" },
-        { text: "Manter 00:00", onPress: () => void changeStatus(status) },
-        { text: "Usar horário atual", onPress: () => void changeStatus(status, true) },
-      ]);
-    } else void changeStatus(status);
-  }
-  function statusMenu() {
-    if (busy || !selected) return;
-    if (selected.status !== "PENDENTE" && selected.status !== "EM_ANDAMENTO") return;
-    const next: OrderStatus = selected.status === "PENDENTE" ? "EM_ANDAMENTO" : "CONCLUIDA";
-    if (Platform.OS === "web") {
-      const choice = window.prompt(`1: ${orderStatusLabels[next]}\n2: Cancelar atendimento\nEscolha uma opção:`);
-      if (choice === "1") selectStatus(next);
-      else if (choice === "2") selectStatus("CANCELADA");
-    } else Alert.alert("Atualizar status", "Selecione a ação para esta ordem.", [
-      { text: "Voltar", style: "cancel" },
-      { text: orderStatusLabels[next], onPress: () => selectStatus(next) },
-      { text: "Cancelar atendimento", style: "destructive", onPress: () => selectStatus("CANCELADA") },
-    ]);
-  }
+  const changeStatus = (status: OrderStatus) => run(async () => {
+    if (!selected) return;
+    // retorno antigo cadastrado sem horário: registra a hora atual ao iniciar ou cancelar
+    const semHorario = selected.retorno && selected.dt_hora.slice(11, 19) === "00:00:00"
+      && (status === "EM_ANDAMENTO" || status === "CANCELADA");
+    const updated = await updateOrderStatus(selected.id, status, semHorario ? `${selected.dt_hora.slice(0, 10)}T${nowTime()}` : undefined);
+    setSelected(updated);
+    setOrders((atual) => atual.map((o) => (o.id === updated.id ? updated : o)));
+    setConfirm(null);
+    showToast(`Status atualizado para ${orderStatusLabels[status]}.`);
+  });
 
-  function cancelAttendance() {
-    if (lock.current || !selected || (selected.status !== "PENDENTE" && selected.status !== "EM_ANDAMENTO")) return;
-    const message = "Deseja cancelar este atendimento? A ordem não poderá ser reaberta.";
-    if (Platform.OS === "web") {
-      if (window.confirm(message)) selectStatus("CANCELADA");
-    } else Alert.alert("Cancelar atendimento", message, [
-      { text: "Voltar", style: "cancel" },
-      { text: "Cancelar atendimento", style: "destructive", onPress: () => selectStatus("CANCELADA") },
-    ]);
-  }
+  const remove = () => run(async () => {
+    if (!selected) return;
+    await deleteOrder(selected.id);
+    setOrders((atual) => atual.filter((o) => o.id !== selected.id));
+    setConfirm(null);
+    setSelected(null);
+    setScreen("list");
+    showToast("Ordem de serviço excluída.");
+  });
+
+  const back = useCallback(() => {
+    if (lock.current) return;
+    setScreen((atual) => (atual === "form" && editing ? "detail" : "list"));
+  }, [editing]);
 
   useFocusEffect(useCallback(() => {
     const listener = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -195,393 +184,767 @@ export default function OrdensScreen() {
   }, [screen, back]));
 
   return (
-    <View style={styles.background}>
-      <SafeAreaView edges={["bottom"]} style={[styles.screen, screen === "delete" && styles.dim]}>
-        {screen === "list" && <OrderList
-          orders={orders} loading={loading || busy} error={error || relationError} onRetry={() => void refresh()}
-          onEdit={order => void open(order, true)} search={search} onSearch={setSearch}
-          onAdd={() => { if (!busy) setScreen("add"); }}
-          onOpen={order => void open(order)}
-        />}
-        {screen === "detail" && selected && <OrderDetail relations={relations} busy={busy} order={selected} onBack={back} onDelete={() => setScreen("delete")} onEdit={() => void open(selected, true)} onCancel={cancelAttendance} onStatusMenu={statusMenu} onStart={() => selectStatus(selected.status === "PENDENTE" ? "EM_ANDAMENTO" : "CONCLUIDA")} />}
-        {(screen === "add" || screen === "edit") && <OrderForm key={screen + selected?.id} original={screen === "edit" ? selected ?? undefined : undefined} relations={relations} busy={busy} error={relationError} onRetry={retryRelations} onSave={save} onClose={back} />}
-        {screen === "delete" && <DeleteSheet busy={busy} onDelete={remove} onCancel={back} />}
-      </SafeAreaView>
+    <View style={styles.container}>
+      {screen === "list" && (
+        <OrderList
+          orders={orders}
+          relations={relations}
+          loading={loading}
+          busy={busy}
+          error={error || orderRelationsError(relations)}
+          onRefresh={() => void refresh()}
+          onAdd={() => void startNew()}
+          onOpen={(order) => void open(order)}
+        />
+      )}
+      {screen === "detail" && selected && (
+        <OrderDetail
+          order={selected}
+          relations={relations}
+          busy={busy}
+          onBack={back}
+          onEdit={startEdit}
+          onAdvance={() => void changeStatus(selected.status === "PENDENTE" ? "EM_ANDAMENTO" : "CONCLUIDA")}
+          onCancel={() => setConfirm("cancel")}
+          onDelete={() => setConfirm("delete")}
+        />
+      )}
+      {screen === "form" && (
+        <OrderForm
+          key={editing ? `edit-${selected?.id}` : "new"}
+          original={editing ? selected ?? undefined : undefined}
+          relations={relations}
+          admin={admin}
+          currentUser={user ? { id: user.userId, nome: user.nome } : null}
+          busy={busy}
+          onSave={save}
+          onClose={back}
+        />
+      )}
+
+      <ConfirmModal
+        visible={confirm === "delete"}
+        title="Confirmar exclusão"
+        message="Tem certeza que deseja excluir esta ordem de serviço?"
+        warning="Esta ação não pode ser desfeita."
+        loading={busy}
+        onConfirm={() => void remove()}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmModal
+        visible={confirm === "cancel"}
+        title="Cancelar atendimento"
+        message="Deseja cancelar este atendimento?"
+        warning="Uma ordem cancelada não pode ser reaberta."
+        confirmLabel="Cancelar atendimento"
+        cancelLabel="Voltar"
+        icon="ban-outline"
+        loading={busy}
+        onConfirm={() => void changeStatus("CANCELADA")}
+        onCancel={() => setConfirm(null)}
+      />
     </View>
   );
 }
 
-function StatusBadge({ status, detail = false, onPress }: { status: Status; detail?: boolean; onPress?: () => void }) {
-  const colors = statusColors[status];
-  return <View style={[styles.badge, { backgroundColor: colors.background }, detail && styles.detailBadge]}>
-    <Text onPress={onPress} accessibilityRole={onPress ? "button" : undefined} accessibilityHint={onPress ? "Atualizar status da ordem" : undefined} style={[styles.badgeText, { color: colors.color }, detail && styles.detailBadgeText]}>
-      {detail ? `Status ${status}` : status}
-    </Text>
-  </View>;
-}
+// ===================== Listagem =====================
 
-function OrderList({ orders, loading, error, onRetry, onEdit, search, onSearch, onAdd, onOpen }: {
-  orders: Order[]; loading: boolean; error: string; onRetry: () => void; onEdit: (order: Order) => void;
-  search: string; onSearch: (value: string) => void;
-  onAdd: () => void; onOpen: (order: Order) => void;
+function OrderList({ orders, relations, loading, busy, error, onRefresh, onAdd, onOpen }: {
+  orders: ServiceOrder[]; relations: OrderRelations; loading: boolean; busy: boolean; error: string;
+  onRefresh: () => void; onAdd: () => void; onOpen: (order: ServiceOrder) => void;
 }) {
-  const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const visible = orders.filter(order =>
-    normalize(`OS #${order.id} ${order.client} ${order.date} ${order.statusLabel}`).includes(normalize(search.trim()))
+  const [search, setSearch] = useState("");
+  const visible = useMemo(() => {
+    const termo = normalize(search.trim());
+    return orders.filter((order) => normalize(
+      `OS #${order.id} ${clientName(order, relations)} ${formatDate(order.dt_hora)} ${orderStatusLabels[order.status] ?? ""}`
+    ).includes(termo));
+  }, [orders, relations, search]);
+
+  return (
+    <>
+      <ScreenHeader
+        title="Ordens de Serviço"
+        right={
+          <Pressable
+            onPress={onAdd}
+            disabled={busy}
+            style={[styles.addButton, busy && styles.disabled]}
+            accessibilityRole="button"
+            accessibilityLabel="Nova ordem de serviço"
+          >
+            {busy ? <ActivityIndicator color={colors.white} /> : <Ionicons name="add" size={26} color={colors.white} />}
+          </Pressable>
+        }
+      />
+      <View style={styles.searchWrap}>
+        <SearchInput placeholder="Buscar por cliente, número ou status..." value={search} onChangeText={setSearch} />
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />}
+      >
+        {!!error && (
+          <Pressable style={styles.errorBox} onPress={onRefresh} accessibilityRole="button">
+            <Ionicons name="cloud-offline-outline" size={20} color={colors.danger} />
+            <Text style={styles.errorText}>{error}{"\n"}Toque para tentar novamente.</Text>
+          </Pressable>
+        )}
+        {loading && orders.length === 0 && <ActivityIndicator style={styles.loader} color={colors.primary} />}
+        {visible.map((order) => (
+          <Pressable
+            key={order.id}
+            disabled={busy}
+            onPress={() => onOpen(order)}
+            style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`OS ${order.id}, ${clientName(order, relations)}, ${orderStatusLabels[order.status]}`}
+          >
+            <View style={styles.cardHeading}>
+              <Text style={styles.orderNumber}>OS #{order.id}</Text>
+              <StatusBadge status={order.status} />
+            </View>
+            <Text style={styles.clientName} numberOfLines={1}>{clientName(order, relations)}</Text>
+            <View style={styles.between}>
+              <Text style={styles.muted}>
+                {formatDate(order.dt_hora || order.dataCriacao)}{formatTime(order.dt_hora) ? ` · ${formatTime(order.dt_hora)}` : ""}
+              </Text>
+              <Text style={styles.amount}>{money(order.valorFinal)}</Text>
+            </View>
+            {!!order.dataRetorno && (
+              <View style={styles.returnHint}>
+                <Ionicons name="repeat-outline" size={14} color={colors.primary} />
+                <Text style={styles.returnHintText}>Retorno em {formatDate(order.dataRetorno)}</Text>
+              </View>
+            )}
+          </Pressable>
+        ))}
+        {!loading && !error && visible.length === 0 && (
+          <Text style={styles.empty}>{search.trim() ? "Nenhuma ordem encontrada para a busca." : "Nenhuma ordem de serviço cadastrada."}</Text>
+        )}
+        {orders.length > 0 && (
+          <Text style={styles.counter}>Mostrando {visible.length} de {orders.length} ordens</Text>
+        )}
+      </ScrollView>
+    </>
   );
-  return <>
-    <ScreenHeader
-      title="Ordens de Serviço"
-      onBack={() => router.push("/home")}
-      right={<Pressable accessibilityRole="button" accessibilityLabel="Nova ordem de serviço" onPress={onAdd} style={styles.addButton}>
-        <Ionicons name="add" size={24} color={colors.white} />
-      </Pressable>}
-    />
-    <SearchInput containerStyle={styles.search} accessibilityLabel="Buscar ordens de serviço" placeholder="Buscar ordens de serviço..."
-      value={search} onChangeText={onSearch} />
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
-      {(loading || Boolean(error)) && <Text style={styles.empty} onPress={onRetry}>{loading ? "Carregando ordens..." : error + " Toque para tentar novamente."}</Text>}
-      {visible.map(order => <Pressable key={order.id} accessibilityRole="button"
-        accessibilityLabel={`Abrir OS #${order.id}, ${order.client}, ${order.statusLabel}`} disabled={loading} onPress={() => onOpen(order)} onLongPress={() => onEdit(order)} accessibilityHint="Mantenha pressionado para editar" accessibilityActions={[{ name: "edit", label: "Editar ordem" }]} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "edit") onEdit(order); }} style={styles.orderCard}>
-        <View style={styles.cardHeading}><Text style={styles.orderNumber}>OS #{order.id}</Text><StatusBadge status={order.statusLabel} /></View>
-        <Text style={styles.clientName}>{order.client}</Text>
-        <View style={styles.between}><Text style={styles.date}>{order.date}</Text><Text style={styles.amount}>{order.amount}</Text></View>
-      </Pressable>)}
-      {!loading && !error && visible.length === 0 && <Text style={styles.empty}>Nenhuma ordem encontrada.</Text>}
-      <View style={styles.listSpacer} />
-    </ScrollView>
-  </>;
 }
 
-function Info({ label, children }: { label: string; children: ReactNode }) {
-  return <View><Text style={styles.infoLabel}>{label}</Text><Text style={styles.infoValue}>{children}</Text></View>;
-}
-function Divider() { return <View style={styles.divider} />; }
-function ValueRow({ label, value, total = false }: { label: string; value: string; total?: boolean }) {
-  return <View style={[styles.between, total && styles.totalRow]}>
-    <Text style={total ? styles.total : styles.subtotalLabel}>{label}</Text>
-    <Text style={total ? styles.total : styles.price}>{value}</Text>
-  </View>;
+// ===================== Detalhe =====================
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoCell}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
 }
 
-function OrderDetail({ order, relations, busy, onBack, onDelete, onEdit, onCancel, onStart, onStatusMenu }: { order: Order; relations: OrderRelations; busy: boolean; onBack: () => void; onDelete: () => void; onEdit: () => void; onCancel: () => void; onStart: () => void; onStatusMenu: () => void }) {
-  const client = relations.clients.find(client => client.id === order.clienteId);
-  const user = relations.users.find(user => user.id === order.usuarioId);
-  return <ScrollView style={styles.scroll} contentContainerStyle={styles.detailContent}>
-    <View style={styles.detailHeader}>
-      <View style={styles.detailHeading}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Voltar para ordens" onPress={onBack} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={colors.primary} />
+function ItemLines({ items, relations }: { items: OrderItem[]; relations: OrderRelations }) {
+  if (!items.length) return <Text style={styles.mutedSmall}>Nenhum item.</Text>;
+  return (
+    <>
+      {items.map((item, index) => {
+        const totais = itemTotals(item, relations);
+        return (
+          <View key={index} style={styles.itemLine}>
+            <View style={styles.flex}>
+              <View style={styles.itemTitleRow}>
+                <Text style={styles.itemName}>{itemName(item, relations)}</Text>
+                {isCombo(item) && <Tag label="Combo" tone="info" />}
+              </View>
+              <Text style={styles.mutedSmall}>
+                {item.quantidade} × {totais ? money(totais.unitario) : "preço não registrado"}
+                {item.desconto ? ` · ${item.desconto}% de desconto` : ""}
+              </Text>
+            </View>
+            <Text style={styles.itemPrice}>{totais ? money(totais.total) : "—"}</Text>
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
+function OrderDetail({ order, relations, busy, onBack, onEdit, onAdvance, onCancel, onDelete }: {
+  order: ServiceOrder; relations: OrderRelations; busy: boolean;
+  onBack: () => void; onEdit: () => void; onAdvance: () => void; onCancel: () => void; onDelete: () => void;
+}) {
+  const client = relations.clients.find((c) => c.id === order.clienteId);
+  const user = relations.users.find((u) => u.id === order.usuarioId);
+  const servicos = order.itens.filter((item) => !isProduct(item));
+  const produtos = order.itens.filter(isProduct);
+  const totais = orderTotals(order.itens, relations);
+  const aberta = order.status === "PENDENTE" || order.status === "EM_ANDAMENTO";
+
+  return (
+    <>
+      <ScreenHeader title={`Ordem #${order.id}`} onBack={onBack} right={<StatusBadge status={order.status} />} />
+      <ScrollView contentContainerStyle={styles.detailContent}>
+        <View style={styles.sectionCard}>
+          <Text style={styles.infoLabel}>CLIENTE</Text>
+          <Text style={styles.detailClient}>{client?.nomeCompleto ?? `Cliente #${order.clienteId}`}</Text>
+          {!!client?.email && <Text style={styles.mutedSmall}>{client.email}</Text>}
+
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Info label="DATA DE CRIAÇÃO" value={formatDate(order.dataCriacao)} />
+            <Info label="RESPONSÁVEL" value={user?.nomeCompleto || user?.nome || `Usuário #${order.usuarioId}`} />
+          </View>
+          <View style={styles.infoRow}>
+            <Info label="DATA DO ATENDIMENTO" value={formatDate(order.dt_hora)} />
+            <Info label="HORÁRIO" value={formatTime(order.dt_hora) || "Não informado"} />
+          </View>
+          <View style={styles.infoRow}>
+            <Info label="DATA DO RETORNO" value={order.dataRetorno ? formatDate(order.dataRetorno) : "Sem retorno"} />
+          </View>
+          {order.retorno && <Text style={styles.legacyNote}>Esta ordem foi cadastrada como atendimento de retorno.</Text>}
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>SERVIÇOS</Text>
+          <ItemLines items={servicos} relations={relations} />
+          <View style={styles.divider} />
+          <Text style={styles.sectionTitle}>PRODUTOS</Text>
+          <ItemLines items={produtos} relations={relations} />
+          <View style={styles.divider} />
+          <TotalRow label="Subtotal" value={money(totais.subtotal)} />
+          <TotalRow label="Desconto" value={`- ${money(totais.desconto)}`} />
+          <TotalRow label="Total da Ordem" value={money(order.valorFinal)} strong />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>OBSERVAÇÕES</Text>
+          <Text style={styles.observation}>{order.observacao || "Nenhuma observação cadastrada para esta ordem de serviço."}</Text>
+        </View>
+      </ScrollView>
+
+      <ScreenFooter>
+        <View style={styles.footerColumn}>
+          {aberta && (
+            <Button
+              title={order.status === "PENDENTE" ? "Iniciar Atendimento" : "Concluir Atendimento"}
+              onPress={onAdvance}
+              loading={busy}
+            />
+          )}
+          <View style={styles.footerRow}>
+            <Button title="Editar" variant="secondary" onPress={onEdit} disabled={busy} style={styles.flex} />
+            {aberta
+              ? <Button title="Cancelar" variant="outlineDanger" onPress={onCancel} disabled={busy} style={styles.flex} />
+              : <Button title="Excluir" variant="outlineDanger" onPress={onDelete} disabled={busy} style={styles.flex} />}
+            {aberta && (
+              <Pressable
+                onPress={onDelete}
+                disabled={busy}
+                style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Excluir ordem"
+              >
+                <Ionicons name="trash-outline" size={20} color={colors.danger} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </ScreenFooter>
+    </>
+  );
+}
+
+function TotalRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <View style={[styles.between, styles.totalRow]}>
+      <Text style={strong ? styles.totalStrong : styles.totalLabel}>{label}</Text>
+      <Text style={strong ? styles.totalStrong : styles.totalValue}>{value}</Text>
+    </View>
+  );
+}
+
+// ===================== Formulário =====================
+
+function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      {children}
+      {!!hint && <Text style={styles.hint}>{hint}</Text>}
+    </View>
+  );
+}
+
+function SelectBox({ value, placeholder, icon = "chevron-down", disabled, onPress, accessibilityLabel }: {
+  value: string; placeholder: string; icon?: keyof typeof Ionicons.glyphMap; disabled?: boolean;
+  onPress: () => void; accessibilityLabel: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[styles.select, disabled && styles.selectDisabled]}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+    >
+      <Text style={[styles.selectText, !value && styles.placeholder]} numberOfLines={1}>{value || placeholder}</Text>
+      <Ionicons name={icon} size={18} color={disabled ? colors.textLight : colors.textMuted} />
+    </Pressable>
+  );
+}
+
+// chave de cada item no seletor: s = serviço, c = combo, p = produto
+const itemKey = (item: OrderItem) =>
+  isCombo(item) ? `c:${item.comboId}` : isProduct(item) ? `p:${item.produtoId}` : `s:${item.servicoProdutoId}`;
+
+function OrderItemCard({ item, relations, disabled, onChange, onRemove }: {
+  item: OrderItem; relations: OrderRelations; disabled: boolean;
+  onChange: (item: OrderItem) => void; onRemove: () => void;
+}) {
+  const [descontoTexto, setDescontoTexto] = useState(item.desconto ? String(item.desconto).replace(".", ",") : "");
+  const totais = itemTotals(item, relations);
+
+  function alterarDesconto(texto: string) {
+    const limpo = texto.replace(/[^\d,.]/g, "").replace(".", ",");
+    setDescontoTexto(limpo);
+    const numero = Number(limpo.replace(",", "."));
+    onChange({ ...item, desconto: Number.isFinite(numero) ? Math.min(100, Math.max(0, numero)) : 0 });
+  }
+
+  return (
+    <View style={styles.itemCard}>
+      <View style={styles.itemHeader}>
+        <View style={styles.flex}>
+          <View style={styles.itemTitleRow}>
+            <Text style={styles.itemName}>{itemName(item, relations)}</Text>
+            {isCombo(item) && <Tag label="Combo" tone="info" />}
+          </View>
+          <Text style={styles.unitPrice}>
+            {totais ? `${money(totais.unitario)} un.` : "Preço indisponível"}
+          </Text>
+        </View>
+        <Pressable onPress={onRemove} disabled={disabled} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remover ${itemName(item, relations)}`}>
+          <Ionicons name="trash-outline" size={20} color={colors.danger} />
         </Pressable>
-        <Text accessibilityRole="header" style={styles.detailTitle}>Ordem #{order.id}</Text>
       </View>
-      <StatusBadge status={order.statusLabel} detail onPress={onStatusMenu} />
+
+      <View style={styles.itemControls}>
+        <View style={styles.stepper}>
+          <Pressable
+            onPress={() => onChange({ ...item, quantidade: Math.max(1, item.quantidade - 1) })}
+            disabled={disabled || item.quantidade <= 1}
+            style={styles.stepperButton}
+            accessibilityRole="button"
+            accessibilityLabel="Diminuir quantidade"
+          >
+            <Ionicons name="remove" size={18} color={item.quantidade <= 1 ? colors.textLight : colors.primary} />
+          </Pressable>
+          <Text style={styles.stepperValue} accessibilityLabel={`Quantidade ${item.quantidade}`}>{item.quantidade}</Text>
+          <Pressable
+            onPress={() => onChange({ ...item, quantidade: item.quantidade + 1 })}
+            disabled={disabled}
+            style={styles.stepperButton}
+            accessibilityRole="button"
+            accessibilityLabel="Aumentar quantidade"
+          >
+            <Ionicons name="add" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+
+        <View style={styles.discountBox}>
+          <TextInput
+            value={descontoTexto}
+            onChangeText={alterarDesconto}
+            editable={!disabled}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor={colors.textLight}
+            maxLength={5}
+            style={styles.discountInput}
+            accessibilityLabel="Desconto do item em porcentagem"
+          />
+          <Text style={styles.discountSuffix}>% desc.</Text>
+        </View>
+
+        <Text style={styles.lineTotal}>{totais ? money(totais.total) : "—"}</Text>
+      </View>
     </View>
-    <View style={styles.detailCard}>
-      <View style={styles.section}>
-        <Text style={styles.infoLabel}>CLIENTE</Text>
-        <Text style={[styles.clientName, styles.detailClient]}>{order.client}</Text>
-        {Boolean(client?.email) && <Text style={styles.date}>{client?.email}</Text>}
-      </View>
-      <Divider />
-      <View style={styles.infoGrid}>
-        <View style={styles.column}><Info label="DATA DO ATENDIMENTO">{order.date}</Info></View>
-        <View style={styles.column}><Info label="RESPONSÁVEL">{user?.nomeCompleto || user?.nome || ("Usuário #" + order.usuarioId)}</Info></View>
-      </View>
-      <View style={styles.section}><Info label="DATA DO RETORNO">{order.retorno ? order.date : "Não se aplica"}</Info></View>
-      <Divider />
-      <View style={styles.section}>
-        <Text style={[styles.infoLabel, styles.itemLabel]}>SERVIÇOS</Text>
-        {order.itens.filter(item => !item.produtoId).map((item, index) => <View key={index} style={styles.itemRow}>
-          <Text style={styles.itemName}>{itemName(item, relations)} ×{item.quantidade}</Text>
-          <Text style={styles.itemPrice}>{item.desconto ? item.desconto + "% desc." : ""}</Text></View>)}
-      </View>
-      <Divider />
-      <View style={styles.section}>
-        <Text style={[styles.infoLabel, styles.itemLabel]}>PRODUTOS</Text>
-        {order.itens.filter(item => item.produtoId).map((item, index) => <View key={index} style={styles.itemRow}>
-          <Text style={styles.itemName}>{itemName(item, relations)} ×{item.quantidade}</Text>
-          <Text style={styles.itemPrice}>{item.desconto ? item.desconto + "% desc." : ""}</Text></View>)}
-      </View>
-      <Divider />
-      <View style={styles.totals}>
-        <ValueRow label="Subtotal" value="Não informado" />
-        <ValueRow label="Desconto" value="Por item" />
-        <ValueRow label="Total da Ordem" value={order.amount} total />
-      </View>
-      <View style={styles.observationDivider} />
-      <Text style={[styles.infoLabel, styles.observationLabel]}>OBSERVAÇÕES</Text>
-      <Text style={styles.observation}>{order.observacao || "Nenhuma observação cadastrada para esta ordem de serviço."}</Text>
-    </View>
-    <View style={styles.detailActions}>
-      <Pressable accessibilityRole="button" disabled={busy || (order.status !== "PENDENTE" && order.status !== "EM_ANDAMENTO")} onPress={onStart} style={styles.startButton}>
-        <Text style={styles.actionText}>{order.status === "PENDENTE" ? "Iniciar Atendimento" : order.status === "EM_ANDAMENTO" ? "Concluir Atendimento" : order.statusLabel}</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" disabled={busy} onPress={onDelete} style={styles.deleteOutline}>
-        <Text style={styles.deleteOutlineText}>Excluir</Text>
-      </Pressable>
-    </View>
-    <View style={styles.detailActions}>
-      <Pressable accessibilityRole="button" disabled={busy} onPress={onEdit} style={styles.startButton}>
-        <Text style={styles.actionText}>Editar</Text>
-      </Pressable>
-      {(order.status === "PENDENTE" || order.status === "EM_ANDAMENTO") && <Pressable accessibilityRole="button" disabled={busy} onPress={onCancel} style={styles.deleteOutline}>
-        <Text style={styles.deleteOutlineText}>Cancelar atendimento</Text>
-      </Pressable>}
-    </View>
-  </ScrollView>;
+  );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <View><Text style={styles.label}>{label}</Text>{children}</View>;
-}
-
-function DraftItem({ label, name, price, visible, onRemove, onAdd }: {
-  label: string; name: string; price: string; visible: boolean; onRemove: () => void; onAdd: () => void;
+function OrderForm({ original, relations, admin, currentUser, busy, onSave, onClose }: {
+  original?: ServiceOrder; relations: OrderRelations; admin: boolean;
+  currentUser: { id: number; nome: string } | null; busy: boolean;
+  onSave: (payload: OrderPayload) => Promise<void>; onClose: () => void;
 }) {
-  return <View>
-    <View style={styles.draftHeading}>
-      <Text style={styles.labelInline}>{label}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Adicionar ${label.toLowerCase()}`} onPress={onAdd} style={styles.addItem}>
-        <OrderIcon name="plusCircle" size={18} /><Text style={styles.addItemText}>Adicionar</Text>
-      </Pressable>
-    </View>
-    {visible && <View style={styles.draftItem}>
-      <View style={styles.draftItemInfo}><Text style={styles.draftItemName}>{name}</Text><Text style={styles.draftPrice}>{price}</Text></View>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Remover ${name}`} onPress={onRemove} hitSlop={8}>
-        <OrderIcon name="trash" size={20} />
-      </Pressable>
-    </View>}
-  </View>;
-}
+  const { showToast } = useToast();
+  const [clienteId, setClienteId] = useState(original?.clienteId ?? 0);
+  // quem não é administrador registra a OS no próprio nome (a lista de usuários é exclusiva do admin)
+  const [usuarioId, setUsuarioId] = useState(original?.usuarioId ?? (admin ? 0 : currentUser?.id ?? 0));
+  const [atendimento, setAtendimento] = useState(toDateTimeInput(original?.dt_hora));
+  const [precisaRetorno, setPrecisaRetorno] = useState(Boolean(original?.dataRetorno));
+  const [dataRetorno, setDataRetorno] = useState(toDateInput(original?.dataRetorno));
+  const [observacao, setObservacao] = useState(original?.observacao ?? "");
+  const [itens, setItens] = useState<OrderItem[]>(original?.itens ?? []);
+  const [seletor, setSeletor] = useState<"cliente" | "responsavel" | "servicos" | "produtos" | null>(null);
+  const [calendario, setCalendario] = useState<"atendimento" | "retorno" | null>(null);
+  const relationError = orderRelationsError(relations);
+  const dataBloqueada = Boolean(original?.retorno); // retorno antigo: backend não deixa mudar a data
 
-function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose }: { original?: ServiceOrder; relations: OrderRelations; busy: boolean; error: string; onRetry: () => void; onSave: (payload: OrderPayload) => Promise<void>; onClose: () => void }) {
-  const [needsReturn, setNeedsReturn] = useState(original?.retorno ?? false);
-  const [returnDate, setReturnDate] = useState(() => scheduleInput(original));
-  const [notes, setNotes] = useState(original?.observacao ?? "");
-  const [clientId, setClientId] = useState(original?.clienteId ?? 0);
-  const [userId, setUserId] = useState(original?.usuarioId ?? 0);
-  const [items, setItems] = useState<OrderItem[]>(original?.itens ?? []);
-  const [picker, setPicker] = useState<"client" | "user" | "service" | "product" | null>(null);
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const submitting = useRef(false);
-  function add(id: number, combo = false) {
-    if (combo) {
-      setItems(current => current.some(item => item.comboId === id)
-        ? current.map(item => item.comboId === id ? { ...item, quantidade: item.quantidade + 1 } : item)
-        : [...current, { comboId: id, quantidade: 1, desconto: 0 }]);
-      setPicker(null);
-      return;
-    }
-    const entry = relations.catalog.find(item => item.idProdutoServico === id)!;
-    setItems(current => {
-      const existing = current.findIndex(item => (entry.produto ? item.produtoId : item.servicoProdutoId) === id);
-      return existing >= 0 ? current.map((item, index) => index === existing ? { ...item, quantidade: item.quantidade + 1 } : item)
-        : [...current, { ...(entry.produto ? { produtoId: id } : { servicoProdutoId: id }), quantidade: 1, desconto: 0 }];
+  // se a data do atendimento passar a ser depois do retorno, limpa o retorno para não salvar algo inválido
+  useEffect(() => {
+    const [data] = atendimento.split(" ");
+    if (!data || !dataRetorno) return;
+    const iso = (d: string) => d.split("/").reverse().join("-");
+    if (iso(dataRetorno) <= iso(data)) setDataRetorno("");
+  }, [atendimento]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totais = orderTotals(itens, relations);
+  const servicos = itens.filter((item) => !isProduct(item));
+  const produtos = itens.filter(isProduct);
+
+  const clienteNome = relations.clients.find((c) => c.id === clienteId)?.nomeCompleto
+    ?? (clienteId ? `Cliente #${clienteId}` : "");
+  const responsavel = relations.users.find((u) => u.id === usuarioId);
+  const responsavelNome = responsavel?.nomeCompleto || responsavel?.nome
+    || (usuarioId === currentUser?.id ? currentUser?.nome : "") || (usuarioId ? `Usuário #${usuarioId}` : "");
+
+  const opcoesServicos: OpcaoSeletor[] = [
+    ...relations.catalog.filter((c) => !c.produto).map((c) => ({ id: `s:${c.idProdutoServico}`, label: c.nome, detalhe: money(c.valorVenda) })),
+    ...relations.combos.map((c) => ({ id: `c:${c.idCombo}`, label: `${c.nome} (combo)`, detalhe: money(c.valorFinal) })),
+  ];
+  const opcoesProdutos: OpcaoSeletor[] = relations.catalog
+    .filter((c) => c.produto)
+    .map((c) => ({ id: `p:${c.idProdutoServico}`, label: c.nome, detalhe: money(c.valorVenda) }));
+
+  // mantém os itens que continuam marcados (com quantidade, desconto e preço) e adiciona os novos
+  function confirmarItens(produto: boolean, chaves: string[]) {
+    setItens((atual) => {
+      const outros = atual.filter((item) => isProduct(item) !== produto);
+      const mantidos = atual.filter((item) => isProduct(item) === produto && chaves.includes(itemKey(item)));
+      const novos = chaves
+        .filter((chave) => !mantidos.some((item) => itemKey(item) === chave))
+        .map((chave): OrderItem => {
+          const [tipo, id] = chave.split(":");
+          const ref = Number(id);
+          return tipo === "c" ? { comboId: ref, quantidade: 1, desconto: 0 }
+            : tipo === "p" ? { produtoId: ref, quantidade: 1, desconto: 0 }
+            : { servicoProdutoId: ref, quantidade: 1, desconto: 0 };
+        });
+      return produto ? [...outros, ...mantidos, ...novos] : [...mantidos, ...novos, ...outros];
     });
-    setPicker(null);
+    setSeletor(null);
   }
+
+  function atualizarItem(alvo: OrderItem, novo: OrderItem) {
+    setItens((atual) => atual.map((item) => (item === alvo ? novo : item)));
+  }
+
   async function submit() {
-    if (busy || submitting.current) return;
-    submitting.current = true;
+    if (busy) return;
     try {
-      await onSave(orderPayload(clientId, userId, notes, items, relations, original, orderSchedule(returnDate, needsReturn, original)));
-    } catch (error) { notify(errorMessage(error)); }
-    finally { submitting.current = false; }
+      const payload = orderPayload(
+        { clienteId, usuarioId, observacao, itens, atendimento, precisaRetorno, dataRetorno },
+        relations,
+        original
+      );
+      await onSave(payload);
+    } catch (e) {
+      showToast(errorMessage(e), "error");
+    }
   }
-  const options: { id: number; name: string; combo?: boolean }[] = picker === "client" ? relations.clients.map(item => ({ id: item.id, name: item.nomeCompleto }))
-    : picker === "user" ? relations.users.map(item => ({ id: item.id, name: item.nomeCompleto || item.nome || ("Usuário #" + item.id) }))
-    : [...relations.catalog.filter(item => item.ativo && item.produto === (picker === "product")).map(item => ({ id: item.idProdutoServico, name: item.nome + " — " + money(item.valorVenda) })),
-      ...(picker === "service" ? relations.combos.filter(item => item.ativo).map(item => ({ id: item.idCombo, name: item.nome + " — " + money(item.valorFinal), combo: true })) : [])];
-  function togglePicker(value: typeof picker) { if (!busy) setPicker(current => current === value ? null : value); }
-  function choices(kind: typeof picker) {
-    return picker === kind && <ScrollView style={[styles.optionsList, (kind === "service" || kind === "product") && styles.catalogOptions]} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-      {options.length === 0 && <Text style={styles.empty}>Nenhum registro disponível.</Text>}{options.map((option, index) => {
-        const selected = kind === "client" ? option.id === clientId : kind === "user" && option.id === userId;
-        return <Pressable key={String(option.combo) + option.id} accessibilityRole="button" accessibilityState={{ selected, disabled: busy }} disabled={busy}
-          style={[styles.optionRow, index > 0 && styles.optionDivider, selected && styles.optionSelected]} onPress={() => {
-        if (kind === "client") { setClientId(option.id); setPicker(null); }
-        else if (kind === "user") { setUserId(option.id); setPicker(null); }
-        else add(option.id, option.combo);
-      }}><Text style={[styles.optionText, selected && styles.optionSelectedText]}>{option.name}</Text>
-          {selected && <Text style={styles.optionCheck} accessibilityElementsHidden>✓</Text>}
-        </Pressable>;
-      })}</ScrollView>;
-  }
-  return <KeyboardAvoidingView style={styles.scroll} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-    <ScreenHeader title={original ? "Editar Ordem de Serviço" : "Nova Ordem de Serviço"} onBack={onClose} />
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
-      {Boolean(error) && <Text style={styles.empty} onPress={busy ? undefined : onRetry}>{error} Toque para tentar novamente.</Text>}
-      <Field label="Cliente"><View style={styles.selectGroup}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Selecione o cliente" accessibilityState={{ expanded: picker === "client", disabled: busy }} disabled={busy}
-          onPress={() => togglePicker("client")} style={[styles.select, styles.groupTrigger]}>
-          <Text numberOfLines={1} style={[styles.selectionText, !clientId && styles.placeholder]}>{relations.clients.find(client => client.id === clientId)?.nomeCompleto || (clientId ? `Cliente #${clientId}` : "Selecione o cliente...")}</Text>
-          <View style={picker === "client" && styles.chevronOpen}><OrderIcon name="chevron" size={18} /></View>
-        </Pressable>
-        {choices("client")}
-      </View></Field>
-      <Field label="Funcionário"><View style={styles.selectGroup}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Selecione o funcionário" accessibilityState={{ expanded: picker === "user", disabled: busy }} disabled={busy}
-          onPress={() => togglePicker("user")} style={[styles.select, styles.groupTrigger]}>
-          <Text numberOfLines={1} style={[styles.selectionText, !userId && styles.placeholder]}>{relations.users.find(user => user.id === userId)?.nomeCompleto || relations.users.find(user => user.id === userId)?.nome || (userId ? `Responsável #${userId}` : "Selecione o funcionário...")}</Text>
-          <View style={picker === "user" && styles.chevronOpen}><OrderIcon name="chevron" size={18} /></View>
-        </Pressable>
-        {choices("user")}
-      </View></Field>
-      {([false, true] as const).map(product => <View key={String(product)}>
-        <DraftItem label={product ? "Produtos" : "Serviços"} name="" price="" visible={false} onRemove={() => {}} onAdd={() => togglePicker(product ? "product" : "service")} />
-        {choices(product ? "product" : "service")}
-        {items.map((item, index) => Boolean(item.produtoId) === product && <View key={index} style={styles.draftItem}>
-          <View style={styles.draftItemInfo}><Text style={styles.draftItemName}>{itemName(item, relations)} ×{item.quantidade}</Text>
-            <Text style={styles.draftPrice}>{itemCatalog(item, relations) ? money(itemCatalog(item, relations)!.valorVenda) : "Preço histórico não disponível"}</Text></View>
-          <Pressable accessibilityRole="button" accessibilityLabel={"Remover " + itemName(item, relations)} disabled={busy} onPress={() => setItems(current => current.filter((_, position) => position !== index))} hitSlop={8}><OrderIcon name="trash" size={20} /></Pressable>
-        </View>)}
-      </View>)}
+
+  const [data, hora] = atendimento.split(" ");
+
+  return (
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScreenHeader title={original ? `Editar Ordem #${original.id}` : "Nova Ordem de Serviço"} onBack={onClose} />
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.formContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        {!!relationError && (
+          <View style={styles.errorBox}>
+            <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+            <Text style={styles.errorText}>{relationError}</Text>
+          </View>
+        )}
+
+        <Field label="Cliente">
+          <SelectBox value={clienteNome} placeholder="Selecione o cliente..." onPress={() => setSeletor("cliente")}
+            disabled={busy} accessibilityLabel="Selecionar cliente" />
+        </Field>
+
+        <Field label="Responsável" hint={admin ? undefined : "A ordem fica registrada no seu nome."}>
+          <SelectBox value={responsavelNome} placeholder="Selecione o responsável..." onPress={() => setSeletor("responsavel")}
+            disabled={busy || !admin} icon={admin ? "chevron-down" : "lock-closed-outline"} accessibilityLabel="Selecionar responsável" />
+        </Field>
+
+        <View style={styles.row}>
+          <View style={styles.flex}>
+            <Field label="Data do atendimento">
+              <SelectBox value={data ?? ""} placeholder="Selecione a data" icon="calendar-outline"
+                onPress={() => setCalendario("atendimento")} disabled={busy || dataBloqueada} accessibilityLabel="Selecionar data do atendimento" />
+            </Field>
+          </View>
+          <View style={styles.timeColumn}>
+            <Field label="Horário">
+              <SelectBox value={hora ?? ""} placeholder="--:--" icon="time-outline"
+                onPress={() => setCalendario("atendimento")} disabled={busy || dataBloqueada} accessibilityLabel="Selecionar horário do atendimento" />
+            </Field>
+          </View>
+        </View>
+        {dataBloqueada && <Text style={styles.hint}>Retorno antigo: a data cadastrada não pode ser alterada.</Text>}
+
+        <ItemsSection
+          title="Serviços"
+          hint="Serviços avulsos e combos"
+          empty="Nenhum serviço adicionado."
+          items={servicos}
+          relations={relations}
+          busy={busy}
+          onAdd={() => setSeletor("servicos")}
+          onChange={atualizarItem}
+          onRemove={(alvo) => setItens((atual) => atual.filter((item) => item !== alvo))}
+        />
+        <ItemsSection
+          title="Produtos"
+          empty="Nenhum produto adicionado."
+          items={produtos}
+          relations={relations}
+          busy={busy}
+          onAdd={() => setSeletor("produtos")}
+          onChange={atualizarItem}
+          onRemove={(alvo) => setItens((atual) => atual.filter((item) => item !== alvo))}
+        />
+
+        <View style={styles.returnRow}>
+          <View style={styles.flex}>
+            <Text style={styles.labelStrong}>Precisa de retorno?</Text>
+            <Text style={styles.hint}>A cliente recebe um lembrete perto da data.</Text>
+          </View>
+          <Switch
+            value={precisaRetorno}
+            onValueChange={setPrecisaRetorno}
+            disabled={busy}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={colors.white}
+            ios_backgroundColor={colors.border}
+            {...(Platform.OS === "web" ? { activeThumbColor: colors.white } : {})}
+            accessibilityLabel="Precisa de retorno?"
+          />
+        </View>
+        {precisaRetorno && (
+          <Field label="Data do retorno">
+            <SelectBox value={dataRetorno} placeholder="Selecione a data" icon="calendar-outline"
+              onPress={() => setCalendario("retorno")} disabled={busy} accessibilityLabel="Selecionar data do retorno" />
+          </Field>
+        )}
+
+        <Field label="Observações">
+          <TextInput
+            multiline
+            value={observacao}
+            onChangeText={setObservacao}
+            editable={!busy}
+            maxLength={255}
+            placeholder="Ex.: cliente com pele sensível, evitar ácidos..."
+            placeholderTextColor={colors.textLight}
+            style={styles.textarea}
+          />
+          <Text style={styles.counterRight}>{observacao.length}/255</Text>
+        </Field>
+      </ScrollView>
+
+      <ScreenFooter>
+        <View style={styles.footerColumn}>
+          <View style={styles.between}>
+            <View>
+              <Text style={styles.totalStrong}>Total</Text>
+              {totais.desconto > 0 && (
+                <Text style={styles.hint}>Subtotal {money(totais.subtotal)} · desconto {money(totais.desconto)}</Text>
+              )}
+            </View>
+            <Text style={styles.totalStrong}>{money(totais.total)}</Text>
+          </View>
+          <Button title={original ? "Salvar Ordem" : "Criar Ordem"} onPress={() => void submit()} loading={busy} />
+        </View>
+      </ScreenFooter>
+
+      <SeletorUnicoModal
+        visible={seletor === "cliente"}
+        titulo="Selecionar cliente"
+        vazio="Nenhum cliente ativo cadastrado."
+        opcoes={relations.clients.map((c) => ({ id: c.id, label: c.nomeCompleto, detalhe: c.email ?? undefined }))}
+        selecionado={clienteId}
+        onSelecionar={(id) => { setClienteId(id); setSeletor(null); }}
+        onFechar={() => setSeletor(null)}
+      />
+      <SeletorUnicoModal
+        visible={seletor === "responsavel"}
+        titulo="Selecionar responsável"
+        vazio="Nenhum usuário encontrado."
+        opcoes={relations.users.map((u) => ({ id: u.id, label: u.nomeCompleto || u.nome || `Usuário #${u.id}` }))}
+        selecionado={usuarioId}
+        onSelecionar={(id) => { setUsuarioId(id); setSeletor(null); }}
+        onFechar={() => setSeletor(null)}
+      />
+      <SeletorItensModal
+        visible={seletor === "servicos"}
+        titulo="Adicionar serviços e combos"
+        vazio="Nenhum serviço ou combo ativo cadastrado."
+        opcoes={opcoesServicos}
+        selecionados={servicos.map(itemKey)}
+        onConfirmar={(chaves) => confirmarItens(false, chaves)}
+        onFechar={() => setSeletor(null)}
+      />
+      <SeletorItensModal
+        visible={seletor === "produtos"}
+        titulo="Adicionar produtos"
+        vazio="Nenhum produto ativo cadastrado."
+        opcoes={opcoesProdutos}
+        selecionados={produtos.map(itemKey)}
+        onConfirmar={(chaves) => confirmarItens(true, chaves)}
+        onFechar={() => setSeletor(null)}
+      />
+      {calendario && (
+        <OrderDateTimePicker
+          title={calendario === "retorno" ? "Data do retorno" : "Data e horário do atendimento"}
+          value={calendario === "retorno" ? dataRetorno : atendimento}
+          dateOnly={calendario === "retorno"}
+          onConfirm={calendario === "retorno" ? setDataRetorno : setAtendimento}
+          onClose={() => setCalendario(null)}
+        />
+      )}
+    </KeyboardAvoidingView>
+  );
+}
+
+function ItemsSection({ title, hint, empty, items, relations, busy, onAdd, onChange, onRemove }: {
+  title: string; hint?: string; empty: string; items: OrderItem[]; relations: OrderRelations; busy: boolean;
+  onAdd: () => void; onChange: (alvo: OrderItem, novo: OrderItem) => void; onRemove: (alvo: OrderItem) => void;
+}) {
+  return (
+    <View style={styles.field}>
       <View style={styles.between}>
-        <Text style={styles.returnLabel}>Atendimento de retorno?</Text>
-        <Pressable accessibilityRole="switch" accessibilityLabel="Atendimento de retorno?" accessibilityState={{ checked: needsReturn, disabled: busy || !!original }} disabled={busy || !!original}
-          onPress={() => setNeedsReturn(value => !value)} style={[styles.toggle, !needsReturn && styles.toggleOff]}>
-          <View style={[styles.toggleKnob, !needsReturn && styles.toggleKnobOff]} />
+        <View>
+          <Text style={styles.labelStrong}>{title}</Text>
+          {!!hint && <Text style={styles.hint}>{hint}</Text>}
+        </View>
+        <Pressable onPress={onAdd} disabled={busy} style={styles.addItem} accessibilityRole="button" accessibilityLabel={`Adicionar ${title.toLowerCase()}`}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+          <Text style={styles.addItemText}>Adicionar</Text>
         </Pressable>
       </View>
-      <Field label={needsReturn ? "Data do retorno" : "Data e hora do atendimento"}><Pressable style={styles.select}
-        accessibilityRole="button" accessibilityLabel={needsReturn ? "Selecionar data do retorno" : "Selecionar data e hora do atendimento"}
-        accessibilityState={{ disabled: busy || !!original?.retorno, expanded: calendarOpen }} disabled={busy || !!original?.retorno}
-        onPress={() => { setPicker(null); setCalendarOpen(true); }}>
-        <Text style={[styles.dateInput, !returnDate && styles.placeholder]}>{returnDate || (needsReturn ? "Selecione a data" : "Selecione a data e hora")}</Text>
-        <OrderIcon name="calendar" size={20} />
-      </Pressable></Field>
-      <View style={styles.notesField}><Field label="Observações">
-        <TextInput accessibilityLabel="Observações" multiline placeholder="Ex: Paciente possui sensibilidade nos dentes..."
-          placeholderTextColor={palette.muted} editable={!busy} maxLength={255} value={notes} onChangeText={setNotes} style={styles.notesInput} />
-      </Field></View>
-    </ScrollView>
-    <View style={styles.createWrap}>
-      <Pressable accessibilityRole="button" disabled={busy} onPress={submit} style={styles.createButton}>
-        <Text style={styles.createText}>{busy ? "Salvando..." : original ? "Salvar Ordem" : "Criar Ordem"}</Text>
-      </Pressable>
+      {items.length === 0
+        ? <Text style={styles.emptyItems}>{empty}</Text>
+        : items.map((item) => (
+          <OrderItemCard
+            key={itemKey(item)}
+            item={item}
+            relations={relations}
+            disabled={busy}
+            onChange={(novo) => onChange(item, novo)}
+            onRemove={() => onRemove(item)}
+          />
+        ))}
     </View>
-    {calendarOpen && <OrderDateTimePicker value={returnDate} dateOnly={needsReturn} onConfirm={setReturnDate} onClose={() => setCalendarOpen(false)} />}
-  </KeyboardAvoidingView>;
+  );
 }
 
-function DeleteSheet({ busy, onDelete, onCancel }: { busy: boolean; onDelete: () => void; onCancel: () => void }) {
-  return <View style={styles.sheetScreen} accessibilityViewIsModal>
-    <Pressable accessibilityRole="button" accessibilityLabel="Cancelar exclusão" onPress={onCancel} style={StyleSheet.absoluteFill} />
-    <View style={styles.sheet}>
-      <View style={styles.handle} />
-      <View style={styles.alertIcon}><OrderIcon name="alertClose" size={28} /></View>
-      <Text accessibilityRole="header" style={styles.sheetTitle}>Confirmar exclusão</Text>
-      <Text style={styles.sheetBody}>Tem certeza que deseja excluir esta ordem de serviço?</Text>
-      <Text style={styles.sheetNote}>Esta ação não pode ser desfeita.</Text>
-      <View style={styles.sheetActions}>
-        <Pressable accessibilityRole="button" onPress={onCancel} style={styles.cancelButton}><Text style={styles.cancelText}>Cancelar</Text></Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={onDelete} style={styles.deleteButton}><Text style={styles.deleteText}>Excluir</Text></Pressable>
-      </View>
-    </View>
-  </View>;
-}
+// ===================== Estilos =====================
 
-// cores do tema do app (src/constants/theme.ts)
-const palette = { background: colors.background, title: colors.primary, primary: colors.primaryDark, ink: colors.text, muted: colors.textLight, label: colors.textMuted, border: colors.border, line: colors.borderLight, gold: colors.gold, danger: colors.danger };
-const text = { color: palette.ink };
 const styles = StyleSheet.create({
-  background: { flex: 1, backgroundColor: palette.background },
-  screen: { flex: 1, width: "100%", backgroundColor: palette.background },
-  dim: { backgroundColor: "rgba(0,0,0,0.4)" },
-  scroll: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  disabled: { opacity: 0.6 },
+  pressed: { opacity: 0.85 },
+  between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  row: { flexDirection: "row", gap: spacing.md },
 
-  title: { ...typography.title, color: palette.title, flexShrink: 1 },
-  addButton: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center", justifyContent: "center" },
-  search: { marginHorizontal: spacing.lg, marginBottom: spacing.md },
-  listContent: { paddingHorizontal: spacing.lg, gap: spacing.md },
-  orderCard: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.md },
-  cardHeading: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
-  orderNumber: { ...text, fontSize: 15, fontWeight: "700", color: palette.title },
-  badge: { borderRadius: 20, paddingVertical: 3, paddingHorizontal: 10, flexShrink: 0 },
-  badgeText: { ...text, fontSize: 12, fontWeight: "700" },
-  clientName: { ...text, fontSize: 16, fontWeight: "700", marginBottom: 4 },
-  between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  date: { ...text, fontSize: 13, color: palette.muted },
-  amount: { ...text, fontSize: 16, fontWeight: "700", color: palette.gold },
-  listSpacer: { height: 52 },
-  empty: { ...text, fontSize: 14, color: palette.muted, textAlign: "center", paddingVertical: 16 },
-  detailContent: { paddingBottom: 10 },
-  detailHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md, paddingHorizontal: spacing.lg, gap: 4 },
-  detailHeading: { flexDirection: "row", alignItems: "center", gap: spacing.md, flexShrink: 1 },
-  detailTitle: { ...typography.title, color: palette.title, flexShrink: 1 },
-  detailBadge: { paddingVertical: 5, paddingHorizontal: 14 },
-  detailBadgeText: { fontSize: 13 },
-  detailCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.lg },
-  section: { marginBottom: 14 },
-  infoLabel: { ...text, fontSize: 11, fontWeight: "700", color: palette.muted, letterSpacing: 0.5, marginBottom: 3 },
-  detailClient: { marginTop: 1, marginBottom: 2 },
-  divider: { height: 1, backgroundColor: palette.line, marginBottom: 14 },
-  infoGrid: { flexDirection: "row", gap: 12, marginBottom: 14 },
-  column: { flex: 1 },
-  infoValue: { ...text, fontSize: 14, fontWeight: "600" },
-  itemLabel: { marginBottom: 8 },
-  itemRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  itemName: { ...text, fontSize: 14, flexShrink: 1 },
-  itemPrice: { ...text, fontSize: 14, fontWeight: "600" },
-  totals: { gap: 6, marginTop: -2 },
-  subtotalLabel: { ...text, fontSize: 14, color: palette.muted },
-  price: { ...text, fontSize: 14 },
-  totalRow: { marginTop: 4 },
-  total: { ...text, fontSize: 15, fontWeight: "700" },
-  observationDivider: { height: 1, backgroundColor: palette.line, marginVertical: 12 },
-  observationLabel: { marginBottom: 6 },
-  observation: { ...text, fontSize: 14, lineHeight: 21, color: palette.muted },
-  detailActions: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: 10 },
-  startButton: { flex: 1, backgroundColor: palette.primary, borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: spacing.lg, alignItems: "center", justifyContent: "center" },
-  actionText: { ...typography.button, fontSize: 15, color: colors.white, textAlign: "center" },
-  deleteOutline: { backgroundColor: "transparent", borderColor: palette.danger, borderWidth: 1, borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: spacing.lg, justifyContent: "center" },
-  deleteOutlineText: { ...typography.button, fontSize: 15, color: palette.danger },
-  formContent: { paddingHorizontal: spacing.lg, gap: 14 },
-  label: { ...typography.label, color: palette.label, marginBottom: 6 },
-  labelInline: { ...text, fontSize: 14, color: palette.label },
-  select: { backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 13, paddingHorizontal: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: palette.border },
-  selectGroup: { backgroundColor: "white", borderRadius: radius.sm, borderWidth: 1, borderColor: palette.border, overflow: "hidden" },
-  groupTrigger: { borderWidth: 0, borderRadius: 0, gap: 10 },
-  selectionText: { ...text, flex: 1, minWidth: 0, fontSize: 15 },
-  chevronOpen: { transform: [{ rotate: "180deg" }] },
-  optionsList: { maxHeight: 220, borderTopWidth: 1, borderColor: palette.line },
-  catalogOptions: { borderWidth: 1, borderColor: palette.border, borderRadius: radius.sm, backgroundColor: "white" },
-  optionRow: { paddingVertical: 12, paddingHorizontal: 14, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10 },
-  optionDivider: { borderTopWidth: 1, borderColor: palette.line },
-  optionSelected: { backgroundColor: colors.primaryLight },
-  optionText: { ...text, flex: 1, fontSize: 15 },
-  optionSelectedText: { color: palette.primary, fontWeight: "600" },
-  optionCheck: { ...text, color: palette.primary, fontSize: 16, fontWeight: "700" },
-  placeholder: { ...text, fontSize: 15, color: palette.muted },
-  draftHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  addItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  addItemText: { ...text, fontSize: 14, fontWeight: "700", color: palette.primary },
-  draftItem: { backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: palette.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  draftItemInfo: { flexShrink: 1 },
-  draftItemName: { ...text, fontSize: 15, fontWeight: "700", marginBottom: 2 },
-  draftPrice: { ...text, fontSize: 14, fontWeight: "600", color: palette.gold },
-  returnLabel: { ...text, fontSize: 14, fontWeight: "500", color: palette.label },
-  toggle: { width: 50, height: 28, borderRadius: radius.sm, backgroundColor: palette.primary },
-  toggleOff: { backgroundColor: palette.border },
-  toggleKnob: { width: 22, height: 22, backgroundColor: "white", borderRadius: 11, position: "absolute", top: 3, right: 3, boxShadow: "0 1px 4px rgba(0,0,0,0.2)" },
-  toggleKnobOff: { left: 3, right: undefined },
-  dateInput: { ...text, flex: 1, minWidth: 0, fontSize: 15, padding: 0 },
-  notesField: { marginBottom: 4 },
-  notesInput: { ...text, backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: palette.border, minHeight: 80, fontSize: 14, textAlignVertical: "top" },
-  createWrap: { paddingTop: 14, paddingHorizontal: spacing.lg, paddingBottom: 10 },
-  createButton: { backgroundColor: colors.primaryDark, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
-  createText: { ...typography.button, fontSize: 15, color: colors.white },
-  sheetScreen: { flex: 1, justifyContent: "flex-end" },
-  sheet: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: spacing.md, paddingHorizontal: spacing.xl - 4, paddingBottom: 36 },
-  handle: { alignSelf: "center", width: 40, height: 4, backgroundColor: palette.border, borderRadius: 4, marginBottom: 18 },
-  alertIcon: { alignSelf: "center", width: 64, height: 64, borderRadius: 32, backgroundColor: colors.dangerLight, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  sheetTitle: { ...text, ...typography.subtitle, fontSize: 20, textAlign: "center", marginBottom: 10 },
-  sheetBody: { ...text, fontSize: 15, lineHeight: 22.5, color: palette.label, textAlign: "center", marginBottom: 6 },
-  sheetNote: { ...text, fontSize: 14, color: palette.muted, textAlign: "center", marginBottom: 6 },
-  sheetActions: { flexDirection: "row", gap: 12, marginTop: 22 },
-  cancelButton: { flex: 1, backgroundColor: colors.primaryLight, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
-  cancelText: { ...typography.button, fontSize: 15, color: palette.title },
-  deleteButton: { flex: 1, backgroundColor: palette.danger, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
-  deleteText: { ...typography.button, fontSize: 15, color: colors.white },
+  addButton: { width: 44, height: 44, borderRadius: radius.circle, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  searchWrap: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  loader: { marginTop: spacing.xl },
+  card: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.lg, gap: spacing.xs },
+  cardHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  orderNumber: { ...typography.label, fontWeight: "700", color: colors.primary },
+  clientName: { ...typography.subtitle, color: colors.text },
+  muted: { ...typography.label, color: colors.textMuted },
+  mutedSmall: { ...typography.small, color: colors.textMuted, marginTop: 2 },
+  amount: { ...typography.body, fontWeight: "700", color: colors.gold },
+  returnHint: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
+  returnHintText: { ...typography.small, color: colors.primary, fontWeight: "600" },
+  empty: { ...typography.body, color: colors.textLight, textAlign: "center", marginTop: spacing.xl },
+  counter: { ...typography.small, color: colors.textLight, textAlign: "center" },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.dangerLight, borderRadius: radius.sm, padding: spacing.md },
+  errorText: { ...typography.label, color: colors.danger, flex: 1 },
+
+  badge: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 3 },
+  badgeText: { fontSize: 12, fontWeight: "700" },
+
+  detailContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
+  sectionCard: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.lg },
+  sectionTitle: { fontSize: 11, letterSpacing: 0.5, fontWeight: "700", color: colors.textLight, marginBottom: spacing.sm },
+  detailClient: { ...typography.subtitle, color: colors.text, marginTop: 2 },
+  divider: { height: 1, backgroundColor: colors.borderLight, marginVertical: spacing.md },
+  infoRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.md },
+  infoCell: { flex: 1 },
+  infoLabel: { fontSize: 11, letterSpacing: 0.5, fontWeight: "700", color: colors.textLight },
+  infoValue: { ...typography.body, color: colors.text, marginTop: 2 },
+  legacyNote: { ...typography.small, color: colors.textMuted, fontStyle: "italic" },
+  itemLine: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.xs },
+  itemTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
+  itemName: { ...typography.body, fontWeight: "600", color: colors.text, flexShrink: 1 },
+  itemPrice: { ...typography.body, fontWeight: "600", color: colors.text },
+  totalRow: { paddingVertical: 3 },
+  totalLabel: { ...typography.body, color: colors.textMuted },
+  totalValue: { ...typography.body, color: colors.text },
+  totalStrong: { fontSize: 17, fontWeight: "700", color: colors.text },
+  observation: { ...typography.body, color: colors.textMuted, lineHeight: 22 },
+  footerColumn: { flex: 1, gap: spacing.sm },
+  footerRow: { flexDirection: "row", gap: spacing.md },
+  iconDanger: { width: 50, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
+
+  formContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg },
+  field: { gap: spacing.sm - 2 },
+  label: { ...typography.label, color: colors.text },
+  labelStrong: { ...typography.body, fontWeight: "600", color: colors.text },
+  hint: { ...typography.small, color: colors.textMuted },
+  select: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 48,
+  },
+  selectDisabled: { backgroundColor: colors.neutralLight },
+  selectText: { ...typography.body, color: colors.text, flex: 1 },
+  placeholder: { color: colors.textLight },
+  timeColumn: { width: 120 },
+  addItem: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingVertical: spacing.xs },
+  addItemText: { ...typography.label, fontWeight: "700", color: colors.primary },
+  emptyItems: { ...typography.label, color: colors.textLight, paddingVertical: spacing.sm },
+  itemCard: { backgroundColor: colors.white, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.md, gap: spacing.md, marginTop: spacing.xs },
+  itemHeader: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  unitPrice: { ...typography.label, color: colors.gold, fontWeight: "600", marginTop: 2 },
+  itemControls: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  stepper: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm },
+  stepperButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  stepperValue: { ...typography.body, fontWeight: "600", color: colors.text, minWidth: 24, textAlign: "center" },
+  discountBox: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, height: 38 },
+  discountInput: { ...typography.body, color: colors.text, width: 40, textAlign: "right", padding: 0 },
+  discountSuffix: { ...typography.small, color: colors.textMuted, marginLeft: 2 },
+  lineTotal: { ...typography.body, fontWeight: "700", color: colors.text, marginLeft: "auto" },
+  returnRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: colors.white,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, padding: spacing.md,
+  },
+  textarea: {
+    ...typography.body, color: colors.text, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 96, textAlignVertical: "top",
+  },
+  counterRight: { ...typography.small, color: colors.textLight, textAlign: "right" },
 });

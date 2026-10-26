@@ -1,210 +1,336 @@
+import type { GenericAbortSignal } from "axios";
+import { api, getErrorMessage, ordemServicoApi } from "@/services/api";
+
+// ===== Tipos (formato do microsserviço de OS) =====
+
 export type OrderItem = {
-  servicoProdutoId?: number | null; produtoId?: number | null; comboId?: number | null;
-  quantidade: number; desconto: number;
-  nomeServicoProduto?: string; nomeCombo?: string; ehProduto?: boolean;
+  servicoProdutoId?: number | null;
+  produtoId?: number | null;
+  comboId?: number | null;
+  quantidade: number;
+  desconto: number; // % por item, de 0 a 100
+  // gravados na OS: nome e preço do momento do atendimento (histórico, não acompanham o catálogo)
+  nomeServicoProduto?: string | null;
+  nomeCombo?: string | null;
+  ehProduto?: boolean | null;
+  valorUnitario?: number | null;
 };
+
 export type OrderStatus = "PENDENTE" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
 export const orderStatusLabels: Record<OrderStatus, string> = {
-  PENDENTE: "Pendente", EM_ANDAMENTO: "Em Andamento", CONCLUIDA: "Concluída", CANCELADA: "Cancelada",
+  PENDENTE: "Pendente",
+  EM_ANDAMENTO: "Em Andamento",
+  CONCLUIDA: "Concluída",
+  CANCELADA: "Cancelada",
 };
-export type OrderSchedule = { dt_hora: string; retorno: boolean };
-export type ServiceOrder = OrderSchedule & {
-  id: number; clienteId: number; usuarioId: number; valorFinal: number;
-  dataCriacao: string; observacao: string | null; itens: OrderItem[];
+
+export type ServiceOrder = {
+  id: number;
+  clienteId: number;
+  usuarioId: number;
+  valorFinal: number;
+  dataCriacao: string;
+  observacao: string | null;
+  itens: OrderItem[];
   status: OrderStatus;
+  dt_hora: string; // data e horário do atendimento (AAAA-MM-DDTHH:mm:ss)
+  dataRetorno: string | null; // "Precisa de retorno?": data prevista para a cliente voltar (AAAA-MM-DD)
+  retorno: boolean; // marcação antiga ("esta OS é um retorno"); OS novas sempre false
 };
+
 export type OrderPayload = Omit<ServiceOrder, "id" | "dataCriacao">;
-export type OrderStatusPayload = { status: OrderStatus; dt_hora?: string };
-export type OrderClient = { id: number; nomeCompleto: string; email?: string };
-export type OrderUser = { id: number; nomeCompleto?: string; nome?: string };
-export type OrderCatalogItem = {
-  idProdutoServico: number; nome: string; valorVenda: number;
-  produto: boolean; ativo: boolean;
-};
-export type OrderCombo = { idCombo: number; nome: string; valorFinal: number; ativo: boolean };
+
+export type OrderClient = { id: number; nomeCompleto: string; email?: string | null };
+export type OrderUser = { id: number; nomeCompleto?: string | null; nome?: string | null };
+export type OrderCatalogItem = { idProdutoServico: number; nome: string; valorVenda: number; produto: boolean };
+export type OrderCombo = { idCombo: number; nome: string; valorFinal: number };
 export type OrderRelations = {
-  clients: OrderClient[]; users: OrderUser[]; catalog: OrderCatalogItem[]; combos: OrderCombo[];
+  clients: OrderClient[];
+  users: OrderUser[];
+  catalog: OrderCatalogItem[];
+  combos: OrderCombo[];
   errors?: Partial<Record<"clients" | "users" | "catalog" | "combos", string>>;
 };
 
-// o AuthContext liga este provider ao token do login (getAuthToken do api.ts)
-let getToken: () => string | null | Promise<string | null> = () => null;
+export const emptyRelations: OrderRelations = { clients: [], users: [], catalog: [], combos: [] };
 
-export function setOrdersTokenProvider(provider: typeof getToken) { getToken = provider; }
+// ===== Chamadas à API =====
 
-export async function orderRequest<T>(path: string, method = "GET", body?: OrderPayload | OrderStatusPayload, signal?: AbortSignal, main = false): Promise<T> {
-  const token = await getToken();
-  if (main && !token) throw new Error("Sessão expirada ou sem token de acesso. Entre novamente.");
-  const base = (main ? process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080"
-    : process.env.EXPO_PUBLIC_ORDERS_API_URL || "http://localhost:8081").replace(/\/+$/, "");
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  if (signal?.aborted) cancel();
-  signal?.addEventListener("abort", cancel);
-  const timeout = setTimeout(cancel, 15000);
+const porStatus = {
+  403: "Você não tem permissão para esta ação.",
+  404: "Ordem de serviço não encontrada. Atualize a lista.",
+};
+
+async function chamar<T>(requisicao: Promise<{ data: T }>): Promise<T> {
   try {
-    const response = await fetch(`${base}${path}`, {
-      method, signal: controller.signal,
-      headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { "Content-Type": "application/json" } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    if (!response.ok) {
-      const raw = await response.text();
-      let message = "";
-      try {
-        const data = JSON.parse(raw);
-        message = typeof data.erro === "string" ? data.erro : typeof data.message === "string" ? data.message : typeof data.detail === "string" ? data.detail : "";
-        if (data.errors && typeof data.errors === "object") message += "\n" + Object.values(data.errors).map(value =>
-          typeof value === "string" ? value : (value as { defaultMessage?: string })?.defaultMessage || "").filter(Boolean).join("\n");
-      } catch { /* Empty and non-JSON error responses use the HTTP fallback. */ }
-      const fallback = response.status === 401 ? "Sessão expirada ou inválida. Entre novamente."
-        : response.status === 403 ? "Sem permissão para consultar estes dados (a lista de usuários exige administrador)."
-        : response.status === 404 ? "Registro não encontrado. Atualize a lista."
-        : response.status === 409 ? "Operação recusada por conflito ou vínculo com outros registros."
-        : response.status >= 500 ? "Falha no servidor. Consulte a lista antes de repetir a operação."
-        : "Verifique os dados informados.";
-      throw new Error(`${fallback}${message && response.status < 500 ? `\n${message}` : ""}`);
-    }
-    if (response.status === 204) return undefined as T;
-    return await response.json() as T;
+    return (await requisicao).data;
   } catch (error) {
-    if (signal?.aborted) throw error;
-    if (controller.signal.aborted) throw new Error("Tempo de requisição excedido. Consulte a lista antes de repetir a operação.");
-    if (error instanceof TypeError) throw new Error("Não foi possível conectar ao backend. Verifique a conexão e as URLs das APIs.");
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener("abort", cancel);
+    throw new Error(getErrorMessage(error, porStatus));
   }
 }
 
-export async function listOrders(signal?: AbortSignal) {
+export async function listOrders(signal?: GenericAbortSignal): Promise<ServiceOrder[]> {
   const orders: ServiceOrder[] = [];
   for (let page = 0; ; page++) {
-    const result = await orderRequest<{ content: ServiceOrder[]; totalPages: number }>(`/ordens-servico?page=${page}`, "GET", undefined, signal);
-    if (!result || !Array.isArray(result.content) || !Number.isInteger(result.totalPages)) throw new Error("Resposta de ordens inválida.");
-    orders.push(...result.content);
-    if (page + 1 >= result.totalPages) return orders;
+    const result = await chamar(
+      ordemServicoApi.get<{ content: ServiceOrder[]; totalPages: number }>("/ordens-servico", { params: { page }, signal })
+    );
+    if (!result || !Array.isArray(result.content)) throw new Error("Resposta de ordens inválida.");
+    orders.push(...result.content.map(normalizarOrdem));
+    if (page + 1 >= (result.totalPages ?? 1)) return orders;
   }
 }
 
-export function updateOrderStatus(id: number, status: OrderStatus, dt_hora?: string) {
-  return orderRequest<ServiceOrder>(`/ordens-servico/${id}/status`, "PATCH", { status, ...(dt_hora ? { dt_hora } : {}) });
+export async function getOrder(id: number): Promise<ServiceOrder> {
+  return normalizarOrdem(await chamar(ordemServicoApi.get<ServiceOrder>(`/ordens-servico/${id}`)));
 }
 
-export function orderSchedule(value: string, retorno: boolean, original?: ServiceOrder): OrderSchedule {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(value.trim());
-  if (!match || (!retorno && match[4] == null)) throw new Error(retorno ? "Informe a data do retorno em DD/MM/AAAA." : "Informe data e hora em DD/MM/AAAA HH:mm.");
-  const [, day, month, year, hour = "00", minute = "00", second = "00"] = match;
-  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
-  if (Number(year) < 1000 || Number(year) > 9999 || !Number.isFinite(date.getTime()) || date.getUTCFullYear() !== Number(year)
-    || date.getUTCMonth() + 1 !== Number(month) || date.getUTCDate() !== Number(day)
-    || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) throw new Error("Data ou horário inválido.");
-  const dt_hora = `${year}-${month}-${day}T${retorno ? "00:00:00" : `${hour}:${minute}:${second}`}`;
-  if (original?.retorno) {
-    if (!retorno || original.dt_hora.slice(0, 10) !== dt_hora.slice(0, 10)) throw new Error("A data do retorno não pode ser alterada após o cadastro.");
-    return { dt_hora: original.dt_hora, retorno: true };
-  }
-  if (original && original.retorno !== retorno) throw new Error("A identificação de retorno não pode ser alterada após o cadastro.");
-  return { dt_hora, retorno };
+export async function saveOrder(payload: OrderPayload, id?: number): Promise<ServiceOrder> {
+  const requisicao = id
+    ? ordemServicoApi.put<ServiceOrder>(`/ordens-servico/${id}`, payload)
+    : ordemServicoApi.post<ServiceOrder>("/ordens-servico", payload);
+  return normalizarOrdem(await chamar(requisicao));
 }
 
-export async function loadOrderRelations(signal?: AbortSignal, selected?: Pick<ServiceOrder, "clienteId" | "usuarioId">): Promise<OrderRelations> {
+export async function deleteOrder(id: number): Promise<void> {
+  await chamar(ordemServicoApi.delete(`/ordens-servico/${id}`));
+}
+
+export async function updateOrderStatus(id: number, status: OrderStatus, dt_hora?: string): Promise<ServiceOrder> {
+  const corpo = { status, ...(dt_hora ? { dt_hora } : {}) };
+  return normalizarOrdem(await chamar(ordemServicoApi.patch<ServiceOrder>(`/ordens-servico/${id}/status`, corpo)));
+}
+
+function normalizarOrdem(order: ServiceOrder): ServiceOrder {
+  return {
+    ...order,
+    itens: Array.isArray(order.itens) ? order.itens : [],
+    dataRetorno: order.dataRetorno ?? null,
+    retorno: Boolean(order.retorno),
+    valorFinal: Number(order.valorFinal) || 0,
+  };
+}
+
+// 204 (lista vazia) chega sem corpo
+const lista = <T,>(data: unknown): T[] => (Array.isArray(data) ? (data as T[]) : []);
+
+type CatalogDto = { idProdutoServico: number; nome: string; valorVenda: number; isProduto?: boolean; produto?: boolean };
+
+/**
+ * Carrega os dados para montar/exibir uma OS. Para criar, só cadastros ATIVOS entram nas listas.
+ * A lista de responsáveis (/usuarios) é exclusiva do administrador; os demais registram a OS
+ * no próprio nome. Cliente e responsável de uma OS existente são buscados à parte quando não
+ * estão na lista (ex.: cliente inativado depois do atendimento).
+ */
+export async function loadOrderRelations(
+  opcoes: { admin: boolean; signal?: GenericAbortSignal; order?: Pick<ServiceOrder, "clienteId" | "usuarioId"> }
+): Promise<OrderRelations> {
+  const { admin, signal, order } = opcoes;
   const [clients, users, catalog, combos] = await Promise.allSettled([
-    orderRequest<OrderClient[]>("/cliente", "GET", undefined, signal, true),
-    orderRequest<OrderUser[]>("/usuarios", "GET", undefined, signal, true),
-    orderRequest<OrderCatalogItem[]>("/servico-produto?status=TODOS", "GET", undefined, signal, true),
-    orderRequest<OrderCombo[]>("/combo?status=TODOS", "GET", undefined, signal, true),
+    chamar(api.get("/cliente", { params: { status: "ATIVO" }, signal })).then((d) => lista<OrderClient>(d)),
+    admin ? chamar(api.get("/usuarios", { signal })).then((d) => lista<OrderUser>(d)) : Promise.resolve([] as OrderUser[]),
+    chamar(api.get("/servico-produto", { params: { status: "ATIVO" }, signal })).then((d) =>
+      lista<CatalogDto>(d).map((item) => ({
+        idProdutoServico: item.idProdutoServico,
+        nome: item.nome,
+        valorVenda: Number(item.valorVenda) || 0,
+        produto: Boolean(item.isProduto ?? item.produto),
+      }))
+    ),
+    chamar(api.get("/combo", { params: { status: "ATIVO" }, signal })).then((d) =>
+      lista<OrderCombo>(d).map((c) => ({ idCombo: c.idCombo, nome: c.nome, valorFinal: Number(c.valorFinal) || 0 }))
+    ),
   ]);
-  if (signal?.aborted) throw new Error("Carregamento cancelado.");
+
   const errors: NonNullable<OrderRelations["errors"]> = {};
-  function records<T>(key: keyof typeof errors, result: PromiseSettledResult<T[]>): T[] {
-    if (result.status === "fulfilled" && (result.value == null || Array.isArray(result.value))) return result.value ?? [];
-    errors[key] = result.status === "rejected" ? result.reason instanceof Error ? result.reason.message : "Falha ao consultar os dados." : "Resposta de catálogo inválida.";
+  function valor<T>(chave: keyof typeof errors, resultado: PromiseSettledResult<T[]>): T[] {
+    if (resultado.status === "fulfilled") return resultado.value;
+    errors[chave] = resultado.reason instanceof Error ? resultado.reason.message : "Falha ao consultar os dados.";
     return [];
   }
   const data: OrderRelations = {
-    clients: records("clients", clients), users: records("users", users),
-    catalog: records("catalog", catalog), combos: records("combos", combos),
+    clients: valor("clients", clients),
+    users: valor("users", users),
+    catalog: valor("catalog", catalog),
+    combos: valor("combos", combos),
   };
-  if (selected) {
+
+  if (order) {
     await Promise.all([
-      (async () => {
-        if (data.clients.some(client => client.id === selected.clienteId)) return;
-        try {
-          const client = await orderRequest<OrderClient>(`/cliente/${selected.clienteId}`, "GET", undefined, signal, true);
-          if (client?.id !== selected.clienteId || typeof client.nomeCompleto !== "string") throw new Error("Cliente vinculado não encontrado na resposta da API.");
-          data.clients.push(client);
-        } catch (error) {
-          if (!errors.clients) errors.clients = error instanceof Error ? error.message : "Não foi possível consultar o cliente vinculado.";
-        }
-      })(),
-      (async () => {
-        if (data.users.some(user => user.id === selected.usuarioId)) return;
-        try {
-          const user = await orderRequest<OrderUser>(`/usuarios/${selected.usuarioId}`, "GET", undefined, signal, true);
-          if (user?.id !== selected.usuarioId || (!user.nomeCompleto && !user.nome)) throw new Error("Responsável vinculado não encontrado na resposta da API.");
-          data.users.push(user);
-        } catch (error) {
-          if (!errors.users) errors.users = error instanceof Error ? error.message : "Não foi possível consultar o responsável vinculado.";
-        }
-      })(),
+      data.clients.some((c) => c.id === order.clienteId)
+        ? null
+        : chamar(api.get<OrderClient>(`/cliente/${order.clienteId}`, { signal }))
+            .then((c) => { if (c?.id === order.clienteId) data.clients.push(c); })
+            .catch(() => undefined),
+      data.users.some((u) => u.id === order.usuarioId)
+        ? null
+        : chamar(api.get<OrderUser>(`/usuarios/${order.usuarioId}`, { signal }))
+            .then((u) => { if (u?.id === order.usuarioId) data.users.push(u); })
+            .catch(() => undefined), // sem permissão: mostra "Usuário #id"
     ]);
   }
-  if (signal?.aborted) throw new Error("Carregamento cancelado.");
   return Object.keys(errors).length ? { ...data, errors } : data;
 }
 
 export function orderRelationsError(relations: OrderRelations) {
-  const labels = { clients: "Clientes", users: "Responsáveis", catalog: "Serviços/produtos", combos: "Combos" };
+  const labels = { clients: "Clientes", users: "Responsáveis", catalog: "Serviços e produtos", combos: "Combos" };
   const entries = Object.entries(relations.errors ?? {}) as [keyof typeof labels, string][];
   if (!entries.length) return "";
-  if (entries.length === 4 && new Set(entries.map(([, message]) => message)).size === 1) return entries[0][1];
+  if (new Set(entries.map(([, message]) => message)).size === 1) return entries[0][1];
   return entries.map(([key, message]) => `${labels[key]}: ${message}`).join("\n");
 }
 
+// ===== Itens e valores =====
+
+export const isCombo = (item: OrderItem) => item.comboId != null;
+export const isProduct = (item: OrderItem) => item.produtoId != null;
+
 export function itemCatalog(item: OrderItem, relations: OrderRelations) {
-  return relations.catalog.find(entry => entry.idProdutoServico === (item.produtoId ?? item.servicoProdutoId));
-}
-export function itemName(item: OrderItem, relations: OrderRelations) {
-  return itemCatalog(item, relations)?.nome ?? (item.comboId ? relations.combos.find(combo => combo.idCombo === item.comboId)?.nome ?? `Combo #${item.comboId}` : `Item #${item.produtoId ?? item.servicoProdutoId}`);
+  const id = item.produtoId ?? item.servicoProdutoId;
+  return id == null ? undefined : relations.catalog.find((entry) => entry.idProdutoServico === id);
 }
 
-export function orderPayload(clienteId: number, usuarioId: number, notes: string, items: OrderItem[], relations: OrderRelations, original?: ServiceOrder, schedule?: OrderSchedule): OrderPayload {
-  if (!schedule?.dt_hora) throw new Error("Informe a data e o horário do atendimento.");
-  const validId = (id: number) => Number.isInteger(id) && id > 0 && id <= 2147483647;
-  if (!validId(clienteId) || (clienteId !== original?.clienteId && !relations.clients.some(client => client.id === clienteId))) throw new Error("Selecione um cliente válido. Carregue a lista de clientes para alterar o vínculo.");
-  if (!validId(usuarioId) || (usuarioId !== original?.usuarioId && !relations.users.some(user => user.id === usuarioId))) throw new Error("Selecione um responsável válido. Carregue a lista de responsáveis para alterar o vínculo.");
-  if (notes.length > 255) throw new Error("Observações devem ter até 255 caracteres.");
-  const seen = new Set<string>();
+function itemCombo(item: OrderItem, relations: OrderRelations) {
+  return item.comboId == null ? undefined : relations.combos.find((combo) => combo.idCombo === item.comboId);
+}
+
+export function itemName(item: OrderItem, relations: OrderRelations) {
+  if (isCombo(item)) return item.nomeCombo || itemCombo(item, relations)?.nome || `Combo #${item.comboId}`;
+  return item.nomeServicoProduto || itemCatalog(item, relations)?.nome || `Item #${item.produtoId ?? item.servicoProdutoId}`;
+}
+
+/** Preço unitário: o gravado na OS; se a OS é antiga e não tem, o preço atual do catálogo. */
+export function itemUnitPrice(item: OrderItem, relations: OrderRelations): number | null {
+  if (item.valorUnitario != null) return Number(item.valorUnitario);
+  const atual = isCombo(item) ? itemCombo(item, relations)?.valorFinal : itemCatalog(item, relations)?.valorVenda;
+  return atual == null ? null : Number(atual);
+}
+
+const centavos = (valor: number) => Math.round(valor * 100);
+
+export function itemTotals(item: OrderItem, relations: OrderRelations) {
+  const unitario = itemUnitPrice(item, relations);
+  if (unitario == null) return null;
+  const bruto = centavos(unitario * item.quantidade);
+  const liquido = centavos(unitario * item.quantidade * (1 - item.desconto / 100));
+  return { unitario, bruto: bruto / 100, desconto: (bruto - liquido) / 100, total: liquido / 100 };
+}
+
+/** Subtotal (sem desconto), soma dos descontos por item e total da OS. */
+export function orderTotals(items: OrderItem[], relations: OrderRelations) {
+  let bruto = 0;
+  let liquido = 0;
+  let semPreco = 0;
   for (const item of items) {
-    const ids = [item.servicoProdutoId, item.produtoId, item.comboId].filter(id => id != null);
-    if (ids.length !== 1 || !validId(ids[0]!)) throw new Error("Selecione um item válido.");
-    const key = `${item.comboId ? "combo" : item.produtoId ? "produto" : "servico"}:${ids[0]}`;
-    if (seen.has(key)) throw new Error("Item duplicado. Use a quantidade do item.");
-    seen.add(key);
-    if (!Number.isInteger(item.quantidade) || item.quantidade < 1 || item.quantidade > 2147483647) throw new Error("Quantidade deve ser um inteiro positivo.");
-    if (!Number.isFinite(item.desconto) || item.desconto < 0 || item.desconto > 100) throw new Error("Desconto deve estar entre 0 e 100%.");
+    const totais = itemTotals(item, relations);
+    if (!totais) { semPreco++; continue; }
+    bruto += centavos(totais.bruto);
+    liquido += centavos(totais.total);
   }
-  const unchanged = original && JSON.stringify(items) === JSON.stringify(original.itens);
-  let valorFinal = original?.valorFinal ?? 0;
-  if (!unchanged) {
-    let cents = 0;
-    for (const item of items) {
-      const entry = itemCatalog(item, relations);
-      const combo = relations.combos.find(combo => combo.idCombo === item.comboId);
-      const price = combo?.valorFinal ?? entry?.valorVenda;
-      if (price == null || !Number.isFinite(price) || price < 0) throw new Error("Não é possível calcular este item com o catálogo atual. Preserve os itens originais.");
-      if (entry && entry.produto !== Boolean(item.produtoId)) throw new Error("Tipo de item incompatível com o catálogo.");
-      if (!(combo?.ativo ?? entry?.ativo)) throw new Error("Selecione somente serviços e produtos ativos.");
-      cents += Math.round(price * 100 * item.quantidade * (1 - item.desconto / 100));
+  return { subtotal: bruto / 100, desconto: (bruto - liquido) / 100, total: liquido / 100, semPreco };
+}
+
+// ===== Datas =====
+
+const pad = (valor: number) => String(valor).padStart(2, "0");
+
+/** "DD/MM/AAAA HH:mm" → "AAAA-MM-DDTHH:mm:00" */
+export function parseDateTime(texto: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/.exec(texto.trim());
+  if (!match) throw new Error("Informe a data e o horário do atendimento.");
+  const [, dia, mes, ano, hora, minuto] = match;
+  validarData(Number(ano), Number(mes), Number(dia));
+  if (Number(hora) > 23 || Number(minuto) > 59) throw new Error("Horário do atendimento inválido.");
+  return `${ano}-${mes}-${dia}T${hora}:${minuto}:00`;
+}
+
+/** "DD/MM/AAAA" → "AAAA-MM-DD" */
+export function parseDate(texto: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(texto.trim());
+  if (!match) throw new Error("Informe a data do retorno.");
+  const [, dia, mes, ano] = match;
+  validarData(Number(ano), Number(mes), Number(dia));
+  return `${ano}-${mes}-${dia}`;
+}
+
+function validarData(ano: number, mes: number, dia: number) {
+  const data = new Date(ano, mes - 1, dia, 12);
+  if (ano < 1000 || ano > 9999 || data.getMonth() !== mes - 1 || data.getDate() !== dia) {
+    throw new Error("Data inválida.");
+  }
+}
+
+/** "AAAA-MM-DDTHH:mm:ss" → "DD/MM/AAAA HH:mm" */
+export function toDateTimeInput(iso?: string | null) {
+  if (!iso) return "";
+  const [ano, mes, dia] = iso.slice(0, 10).split("-");
+  return `${dia}/${mes}/${ano} ${iso.slice(11, 16) || "00:00"}`;
+}
+
+/** "AAAA-MM-DD" → "DD/MM/AAAA" */
+export function toDateInput(iso?: string | null) {
+  if (!iso) return "";
+  const [ano, mes, dia] = iso.slice(0, 10).split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+export function nowTime() {
+  const agora = new Date();
+  return `${pad(agora.getHours())}:${pad(agora.getMinutes())}:${pad(agora.getSeconds())}`;
+}
+
+// ===== Montagem do envio =====
+
+export type OrderDraft = {
+  clienteId: number;
+  usuarioId: number;
+  observacao: string;
+  itens: OrderItem[];
+  atendimento: string; // "DD/MM/AAAA HH:mm"
+  precisaRetorno: boolean;
+  dataRetorno: string; // "DD/MM/AAAA"
+};
+
+export function orderPayload(draft: OrderDraft, relations: OrderRelations, original?: ServiceOrder): OrderPayload {
+  if (!draft.clienteId) throw new Error("Selecione o cliente.");
+  if (!draft.usuarioId) throw new Error("Selecione o responsável pelo atendimento.");
+  if (draft.observacao.length > 255) throw new Error("Observações devem ter até 255 caracteres.");
+  if (!draft.itens.length) throw new Error("Adicione pelo menos um serviço, combo ou produto.");
+
+  // OS antigas marcadas como retorno mantêm a data cadastrada (regra do backend)
+  const dt_hora = original?.retorno ? original.dt_hora : parseDateTime(draft.atendimento);
+  let dataRetorno: string | null = null;
+  if (draft.precisaRetorno) {
+    dataRetorno = parseDate(draft.dataRetorno);
+    if (dataRetorno <= dt_hora.slice(0, 10)) throw new Error("A data do retorno deve ser depois da data do atendimento.");
+  }
+
+  const itens = draft.itens.map((item) => {
+    if (!Number.isInteger(item.quantidade) || item.quantidade < 1) throw new Error("A quantidade de cada item deve ser pelo menos 1.");
+    if (!Number.isFinite(item.desconto) || item.desconto < 0 || item.desconto > 100) {
+      throw new Error("O desconto de cada item deve estar entre 0% e 100%.");
     }
-    valorFinal = cents / 100;
-  }
-  if (!Number.isFinite(valorFinal) || valorFinal < 0 || valorFinal > 3.4028234663852886e38) throw new Error("Valor total inválido.");
-  return { clienteId, usuarioId, valorFinal, observacao: notes.trim(), ...schedule, status: original?.status ?? "PENDENTE", itens: items.map(item => {
-    const entry = itemCatalog(item, relations);
-    const combo = relations.combos.find(combo => combo.idCombo === item.comboId);
-    return { ...item, ...(entry ? { nomeServicoProduto: entry.nome.slice(0, 200), ehProduto: entry.produto } : {}), ...(combo ? { nomeCombo: combo.nome.slice(0, 200) } : {}) };
-  }) };
+    const valorUnitario = itemUnitPrice(item, relations);
+    if (valorUnitario == null) {
+      throw new Error(`Não foi possível obter o preço de "${itemName(item, relations)}". Remova o item e adicione de novo.`);
+    }
+    const nome = itemName(item, relations).slice(0, 200);
+    return {
+      ...item,
+      valorUnitario,
+      ...(isCombo(item) ? { nomeCombo: nome } : { nomeServicoProduto: nome, ehProduto: isProduct(item) }),
+    };
+  });
+
+  return {
+    clienteId: draft.clienteId,
+    usuarioId: draft.usuarioId,
+    observacao: draft.observacao.trim(),
+    itens,
+    valorFinal: orderTotals(itens, relations).total, // o backend recalcula pelos mesmos itens
+    dt_hora,
+    dataRetorno,
+    retorno: original?.retorno ?? false,
+    status: original?.status ?? "PENDENTE",
+  };
 }

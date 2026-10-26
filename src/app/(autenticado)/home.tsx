@@ -5,12 +5,15 @@ import { Href, router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { AvatarUsuario } from "@/components/perfil/AvatarUsuario";
+import { toRole } from "@/types/usuario";
 
 type MenuItem = {
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
-  href?: Href;
+  href: Href;
+  // Funcionários e Custos: o backend só libera para administradores
+  somenteAdmin?: boolean;
 };
 
 const menuItems: MenuItem[] = [
@@ -18,15 +21,16 @@ const menuItems: MenuItem[] = [
   { title: "Serviços", subtitle: "Gerenciar", icon: "cut-outline", href: "/servicos" },
   { title: "Produtos", subtitle: "Gerenciar", icon: "bag-outline", href: "/produtos" },  
   { title: "Combos", subtitle: "Gerenciar", icon: "gift-outline", href: "/combos" },
-  { title: "Ordens de Serv.", subtitle: "Gerenciar", icon: "document-text-outline" },
-  { title: "Dashboard", subtitle: "Gerenciar", icon: "trending-up-outline" },
-  { title: "Funcionários", subtitle: "Gerenciar", icon: "person-outline" },
-  { title: "Custos", subtitle: "Gerenciar", icon: "cash-outline" },
+  { title: "Ordens de Serv.", subtitle: "Gerenciar", icon: "document-text-outline", href: "/ordens" },
+  { title: "Dashboard", subtitle: "Indicadores", icon: "trending-up-outline", href: "/dashboard" },
+  { title: "Funcionários", subtitle: "Gerenciar", icon: "person-outline", href: "/funcionarios", somenteAdmin: true },
+  { title: "Custos", subtitle: "Gerenciar", icon: "cash-outline", href: "/custos", somenteAdmin: true },
   { title: "Lembretes", subtitle: "Gerenciar", icon: "time-outline", href: "/lembretes" },
 ]; 
 
 export default function Home() {
   const { user } = useAuth();
+  const ehAdmin = toRole(user?.role) === "ADMIN";
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
@@ -60,21 +64,13 @@ export default function Home() {
       </View>
 
       <View style={styles.grid}>
-        {menuItems.map((item) => (
+        {menuItems.filter((item) => !item.somenteAdmin || ehAdmin).map((item) => (
           <Card
             key={item.title}
             title={item.title}
             subtitle={item.subtitle}
             icon={item.icon}
-            onPress={
-              item.href
-                ? () => router.push(item.href as Href)
-                : item.icon === "document-text-outline"
-                  ? () => router.push("/ordens")
-                  : item.icon === "person-outline"
-                    ? () => router.push("/funcionarios")
-                    : undefined
-            }
+            onPress={() => router.push(item.href)}
           />
         ))}
       </View>

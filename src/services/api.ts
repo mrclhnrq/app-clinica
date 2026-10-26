@@ -50,6 +50,14 @@ const baseURL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080";
 
 export const api = criarClienteHttp(baseURL);
 
+// microsserviço de ordens de serviço (8081): mesmo token e mesmo tratamento de 401 da API principal
+const ordensBaseURL =
+  process.env.EXPO_PUBLIC_ORDERS_API_URL ||
+  process.env.EXPO_PUBLIC_ORDEM_SERVICO_API_URL ||
+  "http://localhost:8081";
+
+export const ordemServicoApi = criarClienteHttp(ordensBaseURL);
+
 // transforma qualquer erro do axios numa mensagem pronta pra mostrar no toast
 export function getErrorMessage(
   error: unknown,
@@ -67,10 +75,7 @@ export function getErrorMessage(
   const { status, data } = error.response;
   if (porStatus[status]) return porStatus[status]!;
 
-  const mensagemApi =
-    data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
-      ? (data as { message: string }).message
-      : "";
+  const mensagemApi = extrairMensagem(data);
   if (mensagemApi.trim()) return mensagemApi;
 
   if (status === 401) return "Sessão expirada. Faça login novamente.";
@@ -79,4 +84,20 @@ export function getErrorMessage(
   if (status === 400) return "Dados inválidos. Confira os campos.";
   if (status >= 500) return "Erro no servidor. Tente novamente em instantes.";
   return "Não foi possível concluir a operação.";
+}
+
+// a API principal responde { message } (ou { errors: [...] } na validação); o microsserviço de OS responde { erro }
+function extrairMensagem(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const corpo = data as { message?: unknown; erro?: unknown; detail?: unknown; errors?: unknown };
+  const validacao = Array.isArray(corpo.errors)
+    ? corpo.errors
+        .map((e) => (e && typeof e === "object" ? (e as { defaultMessage?: unknown }).defaultMessage : e))
+        .filter((m): m is string => typeof m === "string" && m.trim() !== "")
+        .join("\n")
+    : "";
+  for (const candidato of [corpo.erro, corpo.message, corpo.detail]) {
+    if (typeof candidato === "string" && candidato.trim()) return validacao ? `${candidato}\n${validacao}` : candidato;
+  }
+  return validacao;
 }
