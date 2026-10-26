@@ -19,10 +19,8 @@ export type EmployeeFormValues = {
 
 type EmployeePayload = Omit<EmployeeFormValues, "confirmarSenha" | "senha"> & { senha?: string };
 
-// The mobile login does not yet expose a session. It can supply its token here
-// without storing credentials in public Expo environment variables.
-let getToken: () => string | null | Promise<string | null> = () =>
-  typeof window !== "undefined" ? window.sessionStorage?.getItem("token") ?? null : null;
+// o AuthContext liga este provider ao token do login (getAuthToken do api.ts)
+let getToken: () => string | null | Promise<string | null> = () => null;
 
 export function setEmployeesTokenProvider(provider: typeof getToken) {
   getToken = provider;
@@ -69,7 +67,7 @@ export function employeePayload(values: EmployeeFormValues, editing: boolean): E
 
 export async function employeeRequest<T>(path = "", method = "GET", body?: EmployeePayload, signal?: AbortSignal): Promise<T> {
   const token = await getToken();
-  if (!token) throw new Error("Funcionários exige uma sessão de administrador. O login mobile atual ainda não fornece um token de autenticação.");
+  if (!token) throw new Error("Funcionários exige uma sessão de administrador. Entre novamente.");
   const baseUrl = (process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080").replace(/\/$/, "");
   const controller = new AbortController();
   const cancel = () => controller.abort();

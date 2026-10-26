@@ -27,14 +27,14 @@ export type OrderRelations = {
   errors?: Partial<Record<"clients" | "users" | "catalog" | "combos", string>>;
 };
 
-let getToken: () => string | null | Promise<string | null> = () =>
-  typeof window !== "undefined" ? window.sessionStorage?.getItem("token") ?? null : null;
+// o AuthContext liga este provider ao token do login (getAuthToken do api.ts)
+let getToken: () => string | null | Promise<string | null> = () => null;
 
 export function setOrdersTokenProvider(provider: typeof getToken) { getToken = provider; }
 
 export async function orderRequest<T>(path: string, method = "GET", body?: OrderPayload | OrderStatusPayload, signal?: AbortSignal, main = false): Promise<T> {
   const token = await getToken();
-  if (main && !token) throw new Error("Os dados relacionados exigem uma sessão autenticada. O login mobile atual ainda não fornece token.");
+  if (main && !token) throw new Error("Sessão expirada ou sem token de acesso. Entre novamente.");
   const base = (main ? process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080"
     : process.env.EXPO_PUBLIC_ORDERS_API_URL || "http://localhost:8081").replace(/\/+$/, "");
   const controller = new AbortController();
