@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   Alert, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView,
@@ -221,7 +221,12 @@ function OrderList({ orders, loading, error, onRetry, onEdit, search, onSearch, 
   );
   return <>
     <View style={styles.listHeader}>
-      <Text accessibilityRole="header" style={styles.title}>Ordens de Serviço</Text>
+      <View style={styles.detailHeading}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o início" onPress={() => router.push("/home")} hitSlop={8}>
+          <OrderIcon name="back" size={22} />
+        </Pressable>
+        <Text accessibilityRole="header" style={styles.title}>Ordens de Serviço</Text>
+      </View>
       <Pressable accessibilityRole="button" accessibilityLabel="Nova ordem de serviço" onPress={onAdd} style={styles.addButton}>
         <OrderIcon name="plus" size={22} />
       </Pressable>
