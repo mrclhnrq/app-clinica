@@ -1,12 +1,13 @@
-// Cores da jornada de lembretes, conforme o protótipo do Figma.
-// Ficam aqui (e não no theme.ts) para não interferir nas telas das outras features.
+import { colors } from "../../constants/theme";
+
+// Cores da jornada de lembretes. Vêm do theme.ts para seguir o padrão visual do app;
+// só o verde do botão do WhatsApp é específico (cor da marca).
 export const reminderColors = {
-  cardPurple: "#6B4478",
-  gold: "#A9820C",
-  goldBadge: "#B8890B",
-  chip: "#E6D6F0",
-  sent: "#E3F5EA",
-  sentText: "#24804A",
+  cardPurple: colors.primary,
+  gold: colors.gold,
+  goldBadge: colors.gold,
+  sent: colors.successLight,
+  sentText: colors.success,
+  divider: colors.borderLight,
   whatsapp: "#25D366",
-  divider: "#E9E1EE",
 };

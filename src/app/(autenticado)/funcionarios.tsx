@@ -13,11 +13,18 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ScreenHeader } from "@/components/ScreenHeader";
+import { SearchInput } from "@/components/SearchInput";
+import { useToast } from "@/components/ToastProvider";
+import { colors, radius, spacing, typography } from "@/constants/theme";
 import { employeeCpf, employeePayload, employeeRequest, ensureUniqueEmployee, type Employee, type EmployeeFormValues } from "../../services/funcionarios";
 
 type Screen = "list" | "detail" | "add" | "edit" | "delete";
 
+// avisos usam o Toast do app (mesmo padrão das outras telas); sem Toast disponível, cai no alerta nativo
+let showToast: ((message: string, type?: "success" | "error") => void) | null = null;
 function notify(title: string, message: string) {
+  if (showToast) return showToast(message, title === "Sucesso" ? "success" : "error");
   if (Platform.OS === "web") window.alert(`${title}\n${message}`);
   else Alert.alert(title, message);
 }
@@ -31,6 +38,8 @@ function initials(name: string) {
 }
 
 export default function FuncionariosScreen() {
+  // nos testes automáticos não existe ToastProvider: aí os avisos usam o alerta nativo
+  showToast = typeof useToast === "function" ? useToast().showToast : null;
   const [screen, setScreen] = useState<Screen>("list");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
@@ -161,15 +170,8 @@ function Header({
   action?: React.ReactNode;
   close?: boolean;
 }) {
-  return (
-    <View style={close ? styles.formHeader : styles.header}>
-      <Pressable onPress={onBack} style={close ? styles.formHeaderTitle : styles.headerTitle}>
-        <Text style={close ? styles.closeIcon : styles.backIcon}>{close ? "x" : "<"}</Text>
-        <Text style={close ? styles.formTitle : styles.title}>{title}</Text>
-      </Pressable>
-      {action}
-    </View>
-  );
+  // formulários também usam o cabeçalho padrão (seta de voltar), como "Novo Cliente"
+  return <ScreenHeader title={title} onBack={onBack} right={close ? undefined : action} />;
 }
 
 function EmployeeList({
@@ -193,20 +195,15 @@ function EmployeeList({
     <>
       <AdminBar />
       <Header
-        title="Funcionarios"
+        title="Funcionários"
         onBack={onBack}
         action={
-          <Pressable onPress={onAdd} style={styles.addButton}>
-            <Text style={styles.addButtonText}>+</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Novo funcionário" onPress={onAdd} style={styles.addButton}>
+            <Ionicons name="add" size={24} color={colors.white} />
           </Pressable>
         }
       />
-      <View style={styles.searchWrap}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search-outline" size={18} color="#aaaaaa" />
-          <TextInput style={styles.searchText} placeholder="Buscar funcionarios..." placeholderTextColor={palette.muted} value={search} onChangeText={onSearch} />
-        </View>
-      </View>
+      <SearchInput containerStyle={styles.search} placeholder="Buscar funcionários..." value={search} onChangeText={onSearch} />
       <View style={styles.employeeList}>
         {!loading && !error && employees.map((employee) => (
           <Pressable key={employee.idFuncionario} disabled={busy} onPress={() => onOpen(employee)} style={styles.employeeCard}>
@@ -231,13 +228,13 @@ function EmployeeList({
               <Text style={styles.employeeRole}>{employee.descricao}</Text>
               <Text style={styles.employeeEmail}>{employee.email}</Text>
             </View>
-            <Text style={styles.chevron}>{">"}</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
           </Pressable>
         ))}
       </View>
       <View style={styles.countWrap}>
         <Text style={styles.countText} onPress={error ? onRetry : undefined} accessibilityRole={error ? "button" : undefined}>
-          {loading ? "Carregando funcionários..." : error ? `${error} Toque para tentar novamente.` : busy ? "Carregando ficha..." : `Mostrando ${employees.length} funcionarios${search.trim() ? " encontrados" : " cadastrados"}`}
+          {loading ? "Carregando funcionários..." : error ? `${error} Toque para tentar novamente.` : busy ? "Carregando ficha..." : `Mostrando ${employees.length} funcionários${search.trim() ? " encontrados" : " cadastrados"}`}
         </Text>
       </View>
     </>
@@ -259,7 +256,7 @@ function EmployeeDetail({
   return (
     <>
       <AdminBar />
-      <Header title="Ficha do Funcionario" onBack={onBack} />
+      <Header title="Ficha do Funcionário" onBack={onBack} />
       <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
         <View style={styles.profileCard}>
           <View style={styles.profileHead}>
@@ -321,7 +318,7 @@ function EmployeeForm({ onBack, onSave, employee, busy }: {
   return (
     <>
       <AdminBar />
-      <Header title={employee ? "Editar Funcionario" : "Novo Funcionario"} onBack={onBack} close />
+      <Header title={employee ? "Editar Funcionário" : "Novo Funcionário"} onBack={onBack} close />
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
         <FormInput label="Nome Completo" required placeholder="Ex: Camila Soares Santos" focused {...field("nome")} maxLength={150} />
         <FormInput label="CPF" required placeholder="Ex: 000.000.000-00" {...field("cpf")} keyboardType="numeric" maxLength={14} />
@@ -329,13 +326,13 @@ function EmployeeForm({ onBack, onSave, employee, busy }: {
         <FormInput label="Telefone" required placeholder="Ex: (11) 98888-7777" {...field("telefone")} keyboardType="phone-pad" maxLength={20} />
         <FormInput label="Descrição" required placeholder="Digite a descrição" {...field("descricao")} maxLength={255} />
         <View style={styles.passwordRow}>
-          <FormInput label="Senha" required={!employee} {...field("senha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
-          <FormInput label="Confirmar" required={!employee} {...field("confirmarSenha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
+          <View style={styles.passwordCol}><FormInput label="Senha" required={!employee} {...field("senha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password /></View>
+          <View style={styles.passwordCol}><FormInput label="Confirmar" required={!employee} {...field("confirmarSenha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password /></View>
         </View>
       </ScrollView>
       <View style={styles.ctaWrap}>
         <Pressable disabled={busy} onPress={() => onSave(values)} style={styles.ctaButton}>
-          <Text style={styles.ctaButtonText}>{busy ? "Salvando..." : employee ? "Salvar Funcionario" : "Cadastrar Funcionario"}</Text>
+          <Text style={styles.ctaButtonText}>{busy ? "Salvando..." : employee ? "Salvar Funcionário" : "Cadastrar Funcionário"}</Text>
         </Pressable>
       </View>
     </>
@@ -386,11 +383,11 @@ function DeleteSheet({
       <View style={styles.sheet}>
         <View style={styles.handle} />
         <View style={styles.deleteIcon}>
-          <Text style={styles.deleteX}>x</Text>
+          <Ionicons name="close" size={32} color={colors.danger} />
         </View>
-        <Text style={styles.sheetTitle}>Confirmar exclusao</Text>
-        <Text style={styles.sheetBody}>Tem certeza que deseja excluir este funcionario?</Text>
-        <Text style={styles.sheetNote}>Esta acao nao pode ser desfeita.</Text>
+        <Text style={styles.sheetTitle}>Confirmar exclusão</Text>
+        <Text style={styles.sheetBody}>Tem certeza que deseja excluir este funcionário?</Text>
+        <Text style={styles.sheetNote}>Esta ação não pode ser desfeita.</Text>
         <View style={styles.sheetActions}>
           <Pressable disabled={busy} onPress={onCancel} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Cancelar</Text>
@@ -404,514 +401,90 @@ function DeleteSheet({
   );
 }
 
+// cores do tema do app (src/constants/theme.ts)
 const palette = {
-  background: "#f0eef6",
-  adminBg: "#ede9f8",
-  adminBorder: "#d8d0f0",
-  title: "#3b2a6e",
-  primary: "#5b3fa6",
-  button: "#7c3fbf",
-  text: "#1c1c1e",
-  label: "#3a3a3a",
-  gold: "#c9a227",
-  border: "#e8e4f0",
-  placeholder: "#c0bcc8",
-  muted: "#b0aab8",
-  softText: "#888888",
-  faint: "#aaaaaa",
-  avatar: "#e8e2f5",
-  danger: "#d94040",
+  background: colors.background,
+  title: colors.primary,
+  primary: colors.primary,
+  button: colors.primaryDark,
+  text: colors.text,
+  label: colors.textMuted,
+  gold: colors.gold,
+  border: colors.border,
+  placeholder: colors.textLight,
+  muted: colors.textLight,
+  softText: colors.textMuted,
+  faint: colors.textLight,
+  avatar: colors.primaryLight,
+  danger: colors.danger,
 };
 
-const fontFamily = Platform.select({
-  web: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
-  default: undefined,
-});
-
 const styles = StyleSheet.create({
-  routeBackground: {
-    flex: 1,
-    alignItems: "center",
-    backgroundColor: palette.background,
-  },
-  screen: {
-    flex: 1,
-    width: "100%",
-    maxWidth: 430,
-    backgroundColor: palette.background,
-  },
-  dimScreen: {
-    backgroundColor: "#808080",
-  },
-  adminBar: {
-    backgroundColor: palette.adminBg,
-    borderBottomWidth: 1,
-    borderBottomColor: palette.adminBorder,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  adminShield: {
-    width: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  adminText: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "700",
-    color: palette.primary,
-    letterSpacing: 0.8,
-  },
-  header: {
-    paddingTop: 20,
-    paddingBottom: 8,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  backIcon: {
-    fontFamily,
-    fontSize: 27,
-    lineHeight: 30,
-    color: palette.primary,
-    fontWeight: "500",
-  },
-  title: {
-    fontFamily,
-    margin: 0,
-    fontSize: 26,
-    fontWeight: "700",
-    color: palette.title,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: palette.button,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addButtonText: {
-    fontFamily,
-    color: "#ffffff",
-    fontSize: 26,
-    lineHeight: 28,
-    fontWeight: "300",
-  },
-  searchWrap: {
-    paddingTop: 8,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  searchBox: {
-    backgroundColor: "#ffffff",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  searchText: {
-    fontFamily,
-    color: palette.muted,
-    fontSize: 15,
-  },
-  employeeList: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  employeeCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: palette.avatar,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    fontFamily,
-    fontSize: 14,
-    fontWeight: "600",
-    color: palette.primary,
-  },
-  employeeInfo: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 2,
-  },
-  employeeName: {
-    fontFamily,
-    fontSize: 15,
-    fontWeight: "700",
-    color: palette.text,
-  },
-  statusBadge: {
-    backgroundColor: "#e6f7ed",
-    borderRadius: 20,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-  },
-  statusBadgeAway: {
-    backgroundColor: "#f2eddf",
-  },
-  statusText: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#2d9a4e",
-  },
-  statusTextAway: {
-    color: "#7a6a44",
-  },
-  employeeRole: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "500",
-    color: palette.gold,
-    marginBottom: 2,
-  },
-  employeeEmail: {
-    fontFamily,
-    fontSize: 12,
-    color: palette.softText,
-  },
-  chevron: {
-    fontFamily,
-    color: "#cccccc",
-    fontSize: 18,
-  },
-  countWrap: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: "center",
-  },
-  countText: {
-    fontFamily,
-    fontSize: 13,
-    color: palette.faint,
-  },
-  detailScroll: {
-    flex: 1,
-  },
-  detailContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  profileCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  profileHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    marginBottom: 16,
-  },
-  profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: palette.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileAvatarText: {
-    fontFamily,
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
-  profileTitleWrap: {
-    flex: 1,
-  },
-  profileNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 5,
-  },
-  profileName: {
-    fontFamily,
-    fontSize: 20,
-    fontWeight: "800",
-    color: palette.title,
-  },
-  profileRole: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.gold,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#ece8f3",
-    marginBottom: 14,
-  },
-  infoList: {
-    gap: 12,
-  },
-  infoLabel: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "700",
-    color: palette.faint,
-    letterSpacing: 0.6,
-    marginBottom: 2,
-  },
-  infoValue: {
-    fontFamily,
-    fontSize: 15,
-    color: palette.text,
-  },
-  detailActions: {
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
-    backgroundColor: palette.background,
-  },
-  editButton: {
-    flex: 1,
-    backgroundColor: palette.button,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-  },
-  editButtonText: {
-    fontFamily,
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  deleteOutlineButton: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-    borderColor: palette.danger,
-    borderWidth: 2,
-    borderRadius: 16,
-    padding: 14,
-    alignItems: "center",
-  },
-  deleteOutlineText: {
-    fontFamily,
-    color: palette.danger,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  formHeader: {
-    paddingTop: 20,
-    paddingBottom: 12,
-    paddingHorizontal: 20,
-  },
-  formHeaderTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  closeIcon: {
-    fontFamily,
-    fontSize: 18,
-    color: palette.title,
-    fontWeight: "500",
-  },
-  formTitle: {
-    fontFamily,
-    fontSize: 24,
-    fontWeight: "800",
-    color: palette.title,
-  },
-  formScroll: {
-    flex: 1,
-  },
-  formContent: {
-    paddingTop: 8,
-    paddingHorizontal: 20,
-  },
-  fieldGroup: {
-    marginBottom: 14,
-  },
-  label: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.label,
-    marginBottom: 6,
-  },
-  required: {
-    color: "#e03e3e",
-  },
-  input: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1.5,
-    borderColor: palette.border,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    fontFamily,
-    fontSize: 15,
-    color: palette.text,
-  },
-  inputFocused: {
-    borderWidth: 2,
-    borderColor: palette.gold,
-  },
-  passwordInput: {
-    fontSize: 18,
-    letterSpacing: 3,
-  },
-  passwordRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
-  ctaWrap: {
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    backgroundColor: palette.background,
-  },
-  ctaButton: {
-    width: "100%",
-    padding: 18,
-    backgroundColor: palette.button,
-    borderRadius: 18,
-    alignItems: "center",
-  },
-  ctaButtonText: {
-    fontFamily,
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#ffffff",
-    letterSpacing: 0.2,
-  },
-  sheetScreen: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 10,
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-    alignItems: "center",
-  },
-  handle: {
-    width: 40,
-    height: 5,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 3,
-    marginBottom: 16,
-  },
-  deleteIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#fde8e8",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  deleteX: {
-    fontFamily,
-    fontSize: 35,
-    lineHeight: 36,
-    color: palette.danger,
-    fontWeight: "300",
-  },
-  sheetTitle: {
-    fontFamily,
-    marginBottom: 10,
-    fontSize: 20,
-    fontWeight: "700",
-    color: palette.text,
-    textAlign: "center",
-  },
-  sheetBody: {
-    fontFamily,
-    marginBottom: 4,
-    fontSize: 15,
-    color: "#555555",
-    textAlign: "center",
-    lineHeight: 22.5,
-  },
-  sheetNote: {
-    fontFamily,
-    marginBottom: 20,
-    fontSize: 13,
-    color: palette.faint,
-    textAlign: "center",
-  },
-  sheetActions: {
-    width: "100%",
-    flexDirection: "row",
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: palette.background,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  cancelText: {
-    fontFamily,
-    fontSize: 16,
-    fontWeight: "600",
-    color: palette.title,
-  },
-  deleteButton: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: palette.danger,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  deleteText: {
-    fontFamily,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#ffffff",
-  },
+  routeBackground: { flex: 1, backgroundColor: palette.background },
+  screen: { flex: 1, width: "100%", backgroundColor: palette.background },
+  dimScreen: { backgroundColor: "rgba(0,0,0,0.4)" },
+  adminBar: { backgroundColor: colors.primaryLight, borderBottomWidth: 1, borderBottomColor: colors.borderLight, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  adminShield: { width: 16, height: 16, alignItems: "center", justifyContent: "center" },
+  adminText: { fontSize: 11, fontWeight: "700", color: palette.primary, letterSpacing: 0.8 },
+  addButton: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center", justifyContent: "center" },
+  search: { marginHorizontal: spacing.lg, marginBottom: spacing.md },
+  employeeList: { paddingHorizontal: spacing.lg, gap: spacing.md },
+  employeeCard: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md },
+  avatar: { width: 46, height: 46, borderRadius: radius.circle, backgroundColor: palette.avatar, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontSize: 14, fontWeight: "700", color: palette.primary },
+  employeeInfo: { flex: 1 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 2 },
+  employeeName: { ...typography.body, fontWeight: "700", color: palette.text, flexShrink: 1 },
+  statusBadge: { backgroundColor: colors.successLight, borderRadius: radius.pill, paddingVertical: 2, paddingHorizontal: spacing.sm },
+  statusBadgeAway: { backgroundColor: colors.neutralLight },
+  statusText: { fontSize: 11, fontWeight: "700", color: colors.success },
+  statusTextAway: { color: colors.textMuted },
+  employeeRole: { fontSize: 13, fontWeight: "500", color: palette.gold, marginBottom: 2 },
+  employeeEmail: { ...typography.small, color: palette.softText },
+  countWrap: { paddingVertical: spacing.lg, paddingHorizontal: spacing.lg, alignItems: "center" },
+  countText: { ...typography.small, color: palette.faint },
+  detailScroll: { flex: 1 },
+  detailContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
+  profileCard: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.lg },
+  profileHead: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
+  profileAvatar: { width: 56, height: 56, borderRadius: radius.circle, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center" },
+  profileAvatarText: { fontSize: 18, fontWeight: "700", color: colors.white },
+  profileTitleWrap: { flex: 1 },
+  profileNameRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 5 },
+  profileName: { ...typography.subtitle, fontSize: 20, color: palette.title, flexShrink: 1 },
+  profileRole: { fontSize: 13, fontWeight: "600", color: palette.gold },
+  divider: { height: 1, backgroundColor: colors.borderLight, marginBottom: 14 },
+  infoList: { gap: spacing.md },
+  infoLabel: { fontSize: 11, fontWeight: "700", color: palette.faint, letterSpacing: 0.6, marginBottom: 2 },
+  infoValue: { ...typography.body, color: palette.text },
+  detailActions: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 20, backgroundColor: palette.background },
+  editButton: { flex: 1, backgroundColor: palette.button, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
+  editButtonText: { ...typography.button, fontSize: 15, color: colors.white },
+  deleteOutlineButton: { flex: 1, backgroundColor: "transparent", borderColor: palette.danger, borderWidth: 1, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
+  deleteOutlineText: { ...typography.button, fontSize: 15, color: palette.danger },
+  formScroll: { flex: 1 },
+  formContent: { paddingTop: spacing.sm, paddingHorizontal: spacing.lg },
+  fieldGroup: { marginBottom: 14 },
+  label: { ...typography.label, color: palette.label, marginBottom: 6 },
+  required: { color: colors.danger },
+  input: { width: "100%", backgroundColor: colors.white, borderWidth: 1, borderColor: palette.border, borderRadius: radius.sm, paddingVertical: spacing.md, paddingHorizontal: spacing.md, ...typography.body, color: palette.text },
+  inputFocused: { borderColor: colors.primary },
+  passwordInput: { fontSize: 18, letterSpacing: 3 },
+  passwordRow: { flexDirection: "row", gap: spacing.md, marginBottom: 20 },
+  passwordCol: { flex: 1, minWidth: 0 },
+  ctaWrap: { paddingTop: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: 28, backgroundColor: palette.background },
+  ctaButton: { width: "100%", paddingVertical: 14, backgroundColor: palette.button, borderRadius: radius.sm, alignItems: "center" },
+  ctaButtonText: { ...typography.button, fontSize: 15, color: colors.white },
+  sheetScreen: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, justifyContent: "flex-end" },
+  sheet: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: spacing.md, paddingHorizontal: spacing.xl - 4, paddingBottom: spacing.xl, alignItems: "center" },
+  handle: { width: 40, height: 4, backgroundColor: colors.border, borderRadius: 4, marginBottom: spacing.lg },
+  deleteIcon: { width: 64, height: 64, borderRadius: radius.circle, backgroundColor: colors.dangerLight, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  sheetTitle: { ...typography.subtitle, fontSize: 20, marginBottom: 10, color: palette.text, textAlign: "center" },
+  sheetBody: { ...typography.body, marginBottom: 4, color: colors.textMuted, textAlign: "center", lineHeight: 22 },
+  sheetNote: { fontSize: 13, marginBottom: 20, color: palette.faint, textAlign: "center" },
+  sheetActions: { width: "100%", flexDirection: "row", gap: spacing.md },
+  cancelButton: { flex: 1, paddingVertical: 14, backgroundColor: colors.primaryLight, borderRadius: radius.sm, alignItems: "center" },
+  cancelText: { ...typography.button, fontSize: 15, color: palette.title },
+  deleteButton: { flex: 1, paddingVertical: 14, backgroundColor: palette.danger, borderRadius: radius.sm, alignItems: "center" },
+  deleteText: { ...typography.button, fontSize: 15, color: colors.white },
 });

@@ -5,6 +5,11 @@ import {
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { ScreenHeader } from "@/components/ScreenHeader";
+import { SearchInput } from "@/components/SearchInput";
+import { useToast } from "@/components/ToastProvider";
+import { colors, radius, spacing, typography } from "@/constants/theme";
 import { OrderIcon } from "../../components/ordens/OrderIcon";
 import { OrderDateTimePicker } from "../../components/ordens/OrderDateTimePicker";
 
@@ -22,17 +27,20 @@ const formatDate = (value: string) => {
   return `${String(date.getDate()).padStart(2, "0")} ${month.charAt(0).toUpperCase() + month.slice(1)} ${date.getFullYear()}`;
 };
 const emptyRelations: OrderRelations = { clients: [], users: [], catalog: [], combos: [] };
-function notify(message: string) {
+// avisos usam o Toast do app (mesmo padrão das outras telas); sem Toast disponível, cai no alerta nativo
+let showToast: ((message: string, type?: "success" | "error") => void) | null = null;
+function notify(message: string, type: "success" | "error" = "error") {
+  if (showToast) return showToast(message, type);
   if (Platform.OS === "web") window.alert(message);
   else Alert.alert("Ordens de Serviço", message);
 }
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "Não foi possível concluir a operação.";
 const statusColors: Record<Status, { background: string; color: string }> = {
-  "Não informado": { background: "#fef8e6", color: "#c8960a" },
-  Pendente: { background: "#fef8e6", color: "#c8960a" },
+  "Não informado": { background: colors.neutralLight, color: colors.textMuted },
+  Pendente: { background: "#fef8e6", color: colors.gold },
   "Em Andamento": { background: "#e8f0ff", color: "#3a5fd4" },
-  Concluída: { background: "#e6f9ee", color: "#2a9d5c" },
-  Cancelada: { background: "#fce8e8", color: "#e03535" },
+  Concluída: { background: colors.successLight, color: colors.success },
+  Cancelada: { background: colors.dangerLight, color: colors.danger },
 };
 
 function scheduleInput(order?: ServiceOrder) {
@@ -42,6 +50,8 @@ function scheduleInput(order?: ServiceOrder) {
 }
 
 export default function OrdensScreen() {
+  // nos testes automáticos não existe ToastProvider: aí os avisos usam o alerta nativo
+  showToast = typeof useToast === "function" ? useToast().showToast : null;
   const [screen, setScreen] = useState<Screen>("list");
   const [selected, setSelected] = useState<Order | null>(null);
   const [search, setSearch] = useState("");
@@ -95,7 +105,7 @@ export default function OrdensScreen() {
     try {
       const result = await orderRequest<ServiceOrder>(screen === "edit" && selected ? "/ordens-servico/" + selected.id : "/ordens-servico", screen === "edit" ? "PUT" : "POST", payload);
       setSelected(decorate(result, relations)); setScreen("detail");
-      notify("Ordem salva com sucesso."); await refresh();
+      notify("Ordem salva com sucesso.", "success"); await refresh();
     } catch (error) { notify(errorMessage(error)); }
     finally { lock.current = false; setBusy(false); }
   }
@@ -116,7 +126,7 @@ export default function OrdensScreen() {
     try {
       await orderRequest("/ordens-servico/" + selected.id, "DELETE");
       setOrders(current => current.filter(order => order.id !== selected.id));
-      setSelected(null); setScreen("list"); notify("Ordem excluída com sucesso.");
+      setSelected(null); setScreen("list"); notify("Ordem excluída com sucesso.", "success");
     } catch (error) { notify(errorMessage(error)); }
     finally { lock.current = false; setBusy(false); }
   }
@@ -220,22 +230,15 @@ function OrderList({ orders, loading, error, onRetry, onEdit, search, onSearch, 
     normalize(`OS #${order.id} ${order.client} ${order.date} ${order.statusLabel}`).includes(normalize(search.trim()))
   );
   return <>
-    <View style={styles.listHeader}>
-      <View style={styles.detailHeading}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o início" onPress={() => router.push("/home")} hitSlop={8}>
-          <OrderIcon name="back" size={22} />
-        </Pressable>
-        <Text accessibilityRole="header" style={styles.title}>Ordens de Serviço</Text>
-      </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="Nova ordem de serviço" onPress={onAdd} style={styles.addButton}>
-        <OrderIcon name="plus" size={22} />
-      </Pressable>
-    </View>
-    <View style={styles.searchWrap}><View style={styles.searchBox}>
-      <View style={styles.searchDot} />
-      <TextInput accessibilityLabel="Buscar ordens de serviço" placeholder="Buscar ordens de serviço..."
-        placeholderTextColor="#b0aabf" value={search} onChangeText={onSearch} style={styles.searchInput} />
-    </View></View>
+    <ScreenHeader
+      title="Ordens de Serviço"
+      onBack={() => router.push("/home")}
+      right={<Pressable accessibilityRole="button" accessibilityLabel="Nova ordem de serviço" onPress={onAdd} style={styles.addButton}>
+        <Ionicons name="add" size={24} color={colors.white} />
+      </Pressable>}
+    />
+    <SearchInput containerStyle={styles.search} accessibilityLabel="Buscar ordens de serviço" placeholder="Buscar ordens de serviço..."
+      value={search} onChangeText={onSearch} />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
       {(loading || Boolean(error)) && <Text style={styles.empty} onPress={onRetry}>{loading ? "Carregando ordens..." : error + " Toque para tentar novamente."}</Text>}
       {visible.map(order => <Pressable key={order.id} accessibilityRole="button"
@@ -267,8 +270,8 @@ function OrderDetail({ order, relations, busy, onBack, onDelete, onEdit, onCance
   return <ScrollView style={styles.scroll} contentContainerStyle={styles.detailContent}>
     <View style={styles.detailHeader}>
       <View style={styles.detailHeading}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Voltar para ordens" onPress={onBack} hitSlop={8}>
-          <OrderIcon name="back" size={22} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Voltar para ordens" onPress={onBack} hitSlop={10}>
+          <Ionicons name="arrow-back" size={24} color={colors.primary} />
         </Pressable>
         <Text accessibilityRole="header" style={styles.detailTitle}>Ordem #{order.id}</Text>
       </View>
@@ -406,12 +409,7 @@ function OrderForm({ original, relations, busy, error, onRetry, onSave, onClose 
       })}</ScrollView>;
   }
   return <KeyboardAvoidingView style={styles.scroll} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-    <View style={styles.formHeader}>
-      <Text accessibilityRole="header" style={styles.title}>{original ? "Editar Ordem de Serviço" : "Nova Ordem de Serviço"}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Fechar nova ordem" onPress={onClose} style={styles.closeButton}>
-        <OrderIcon name="close" size={16} />
-      </Pressable>
-    </View>
+    <ScreenHeader title={original ? "Editar Ordem de Serviço" : "Nova Ordem de Serviço"} onBack={onClose} />
     <ScrollView style={styles.scroll} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
       {Boolean(error) && <Text style={styles.empty} onPress={busy ? undefined : onRetry}>{error} Toque para tentar novamente.</Text>}
       <Field label="Cliente"><View style={styles.selectGroup}>
@@ -484,24 +482,20 @@ function DeleteSheet({ busy, onDelete, onCancel }: { busy: boolean; onDelete: ()
   </View>;
 }
 
-const palette = { background: "#ededf5", title: "#5b2d8e", primary: "#6a3db8", ink: "#1a1a2e", muted: "#9a98b0", label: "#4a4a6a", border: "#e0dff0", line: "#ebebf5", gold: "#c8960a", danger: "#e03535" };
-const fontFamily = Platform.select({ web: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", default: undefined });
-const text = { fontFamily, color: palette.ink };
+// cores do tema do app (src/constants/theme.ts)
+const palette = { background: colors.background, title: colors.primary, primary: colors.primaryDark, ink: colors.text, muted: colors.textLight, label: colors.textMuted, border: colors.border, line: colors.borderLight, gold: colors.gold, danger: colors.danger };
+const text = { color: palette.ink };
 const styles = StyleSheet.create({
-  background: { flex: 1, alignItems: "center", backgroundColor: palette.background },
-  screen: { flex: 1, width: "100%", maxWidth: 360, backgroundColor: palette.background },
-  dim: { backgroundColor: "#7a7a7a" },
+  background: { flex: 1, backgroundColor: palette.background },
+  screen: { flex: 1, width: "100%", backgroundColor: palette.background },
+  dim: { backgroundColor: "rgba(0,0,0,0.4)" },
   scroll: { flex: 1 },
 
-  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 18, paddingHorizontal: 20, paddingBottom: 16 },
-  title: { ...text, fontSize: 22, fontWeight: "800", color: palette.title, flexShrink: 1 },
-  addButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center" },
-  searchWrap: { paddingHorizontal: 20, paddingBottom: 14 },
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, backgroundColor: "white", paddingVertical: 12, paddingHorizontal: 16 },
-  searchDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: palette.muted },
-  searchInput: { ...text, flex: 1, minWidth: 0, fontSize: 15, padding: 0 },
-  listContent: { paddingHorizontal: 20, gap: 10 },
-  orderCard: { backgroundColor: "white", borderRadius: 16, padding: 16, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" },
+  title: { ...typography.title, color: palette.title, flexShrink: 1 },
+  addButton: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center", justifyContent: "center" },
+  search: { marginHorizontal: spacing.lg, marginBottom: spacing.md },
+  listContent: { paddingHorizontal: spacing.lg, gap: spacing.md },
+  orderCard: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.md },
   cardHeading: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
   orderNumber: { ...text, fontSize: 15, fontWeight: "700", color: palette.title },
   badge: { borderRadius: 20, paddingVertical: 3, paddingHorizontal: 10, flexShrink: 0 },
@@ -513,12 +507,12 @@ const styles = StyleSheet.create({
   listSpacer: { height: 52 },
   empty: { ...text, fontSize: 14, color: palette.muted, textAlign: "center", paddingVertical: 16 },
   detailContent: { paddingBottom: 10 },
-  detailHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 16, paddingHorizontal: 20, paddingBottom: 12, gap: 4 },
-  detailHeading: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
-  detailTitle: { ...text, fontSize: 20, fontWeight: "800", color: palette.title, flexShrink: 1 },
+  detailHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md, paddingHorizontal: spacing.lg, gap: 4 },
+  detailHeading: { flexDirection: "row", alignItems: "center", gap: spacing.md, flexShrink: 1 },
+  detailTitle: { ...typography.title, color: palette.title, flexShrink: 1 },
   detailBadge: { paddingVertical: 5, paddingHorizontal: 14 },
   detailBadgeText: { fontSize: 13 },
-  detailCard: { marginHorizontal: 16, marginBottom: 14, backgroundColor: "white", borderRadius: 20, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,0.06)" },
+  detailCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: radius.md, padding: spacing.lg },
   section: { marginBottom: 14 },
   infoLabel: { ...text, fontSize: 11, fontWeight: "700", color: palette.muted, letterSpacing: 0.5, marginBottom: 3 },
   detailClient: { marginTop: 1, marginBottom: 2 },
@@ -538,26 +532,24 @@ const styles = StyleSheet.create({
   observationDivider: { height: 1, backgroundColor: palette.line, marginVertical: 12 },
   observationLabel: { marginBottom: 6 },
   observation: { ...text, fontSize: 14, lineHeight: 21, color: palette.muted },
-  detailActions: { flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingBottom: 10 },
-  startButton: { flex: 1, backgroundColor: palette.primary, borderRadius: 16, padding: 16, alignItems: "center", justifyContent: "center" },
-  actionText: { ...text, fontSize: 15, fontWeight: "700", color: "white", textAlign: "center" },
-  deleteOutline: { backgroundColor: "white", borderColor: palette.danger, borderWidth: 2, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 18, justifyContent: "center" },
-  deleteOutlineText: { ...text, fontSize: 15, fontWeight: "700", color: palette.danger },
-  formHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 16, paddingHorizontal: 20, paddingBottom: 12 },
-  closeButton: { width: 38, height: 38, backgroundColor: "#e8e0f5", borderRadius: 19, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  formContent: { paddingHorizontal: 20, gap: 14 },
-  label: { ...text, fontSize: 14, color: palette.label, marginBottom: 6 },
+  detailActions: { flexDirection: "row", gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: 10 },
+  startButton: { flex: 1, backgroundColor: palette.primary, borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: spacing.lg, alignItems: "center", justifyContent: "center" },
+  actionText: { ...typography.button, fontSize: 15, color: colors.white, textAlign: "center" },
+  deleteOutline: { backgroundColor: "transparent", borderColor: palette.danger, borderWidth: 1, borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: spacing.lg, justifyContent: "center" },
+  deleteOutlineText: { ...typography.button, fontSize: 15, color: palette.danger },
+  formContent: { paddingHorizontal: spacing.lg, gap: 14 },
+  label: { ...typography.label, color: palette.label, marginBottom: 6 },
   labelInline: { ...text, fontSize: 14, color: palette.label },
-  select: { backgroundColor: "white", borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1.5, borderColor: palette.border },
-  selectGroup: { backgroundColor: "white", borderRadius: 14, borderWidth: 1.5, borderColor: palette.border, overflow: "hidden" },
+  select: { backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 13, paddingHorizontal: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: palette.border },
+  selectGroup: { backgroundColor: "white", borderRadius: radius.sm, borderWidth: 1, borderColor: palette.border, overflow: "hidden" },
   groupTrigger: { borderWidth: 0, borderRadius: 0, gap: 10 },
   selectionText: { ...text, flex: 1, minWidth: 0, fontSize: 15 },
   chevronOpen: { transform: [{ rotate: "180deg" }] },
   optionsList: { maxHeight: 220, borderTopWidth: 1, borderColor: palette.line },
-  catalogOptions: { borderWidth: 1.5, borderColor: palette.border, borderRadius: 14, backgroundColor: "white" },
+  catalogOptions: { borderWidth: 1, borderColor: palette.border, borderRadius: radius.sm, backgroundColor: "white" },
   optionRow: { paddingVertical: 12, paddingHorizontal: 14, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10 },
   optionDivider: { borderTopWidth: 1, borderColor: palette.line },
-  optionSelected: { backgroundColor: "#f0eef8" },
+  optionSelected: { backgroundColor: colors.primaryLight },
   optionText: { ...text, flex: 1, fontSize: 15 },
   optionSelectedText: { color: palette.primary, fontWeight: "600" },
   optionCheck: { ...text, color: palette.primary, fontSize: 16, fontWeight: "700" },
@@ -565,31 +557,31 @@ const styles = StyleSheet.create({
   draftHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   addItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   addItemText: { ...text, fontSize: 14, fontWeight: "700", color: palette.primary },
-  draftItem: { backgroundColor: "white", borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1.5, borderColor: palette.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  draftItem: { backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: palette.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   draftItemInfo: { flexShrink: 1 },
   draftItemName: { ...text, fontSize: 15, fontWeight: "700", marginBottom: 2 },
   draftPrice: { ...text, fontSize: 14, fontWeight: "600", color: palette.gold },
   returnLabel: { ...text, fontSize: 14, fontWeight: "500", color: palette.label },
-  toggle: { width: 50, height: 28, borderRadius: 14, backgroundColor: palette.primary },
+  toggle: { width: 50, height: 28, borderRadius: radius.sm, backgroundColor: palette.primary },
   toggleOff: { backgroundColor: palette.border },
   toggleKnob: { width: 22, height: 22, backgroundColor: "white", borderRadius: 11, position: "absolute", top: 3, right: 3, boxShadow: "0 1px 4px rgba(0,0,0,0.2)" },
   toggleKnobOff: { left: 3, right: undefined },
   dateInput: { ...text, flex: 1, minWidth: 0, fontSize: 15, padding: 0 },
   notesField: { marginBottom: 4 },
-  notesInput: { ...text, backgroundColor: "white", borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, borderWidth: 1.5, borderColor: palette.border, minHeight: 80, fontSize: 14, textAlignVertical: "top" },
-  createWrap: { paddingTop: 14, paddingHorizontal: 20, paddingBottom: 10 },
-  createButton: { backgroundColor: "#7b3fc4", borderRadius: 18, padding: 18, alignItems: "center" },
-  createText: { ...text, color: "white", fontSize: 17, fontWeight: "700", letterSpacing: 0.2 },
+  notesInput: { ...text, backgroundColor: "white", borderRadius: radius.sm, paddingVertical: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: palette.border, minHeight: 80, fontSize: 14, textAlignVertical: "top" },
+  createWrap: { paddingTop: 14, paddingHorizontal: spacing.lg, paddingBottom: 10 },
+  createButton: { backgroundColor: colors.primaryDark, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
+  createText: { ...typography.button, fontSize: 15, color: colors.white },
   sheetScreen: { flex: 1, justifyContent: "flex-end" },
-  sheet: { backgroundColor: "white", borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 16, paddingHorizontal: 24, paddingBottom: 36 },
+  sheet: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: spacing.md, paddingHorizontal: spacing.xl - 4, paddingBottom: 36 },
   handle: { alignSelf: "center", width: 40, height: 4, backgroundColor: palette.border, borderRadius: 4, marginBottom: 18 },
-  alertIcon: { alignSelf: "center", width: 64, height: 64, borderRadius: 32, backgroundColor: "#fce8e8", alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  sheetTitle: { ...text, fontSize: 20, fontWeight: "800", textAlign: "center", marginBottom: 10 },
+  alertIcon: { alignSelf: "center", width: 64, height: 64, borderRadius: 32, backgroundColor: colors.dangerLight, alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  sheetTitle: { ...text, ...typography.subtitle, fontSize: 20, textAlign: "center", marginBottom: 10 },
   sheetBody: { ...text, fontSize: 15, lineHeight: 22.5, color: palette.label, textAlign: "center", marginBottom: 6 },
   sheetNote: { ...text, fontSize: 14, color: palette.muted, textAlign: "center", marginBottom: 6 },
   sheetActions: { flexDirection: "row", gap: 12, marginTop: 22 },
-  cancelButton: { flex: 1, backgroundColor: "#f0eef8", borderRadius: 16, padding: 16, alignItems: "center" },
-  cancelText: { ...text, color: palette.title, fontSize: 16, fontWeight: "700" },
-  deleteButton: { flex: 1, backgroundColor: palette.danger, borderRadius: 16, padding: 16, alignItems: "center" },
-  deleteText: { ...text, color: "white", fontSize: 16, fontWeight: "700" },
+  cancelButton: { flex: 1, backgroundColor: colors.primaryLight, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
+  cancelText: { ...typography.button, fontSize: 15, color: palette.title },
+  deleteButton: { flex: 1, backgroundColor: palette.danger, borderRadius: radius.sm, paddingVertical: 14, alignItems: "center" },
+  deleteText: { ...typography.button, fontSize: 15, color: colors.white },
 });

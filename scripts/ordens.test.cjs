@@ -9,6 +9,9 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const sandbox = { exports: {}, process: { env: { EXPO_PUBLIC_API_URL: "http://main.test/", EXPO_PUBLIC_ORDERS_API_URL: "http://orders.test/" } }, TypeError, AbortController, setTimeout, clearTimeout, fetch: (...args) => global.fetch(...args) };
 vm.runInNewContext(compiled.outputText, sandbox);
 const api = sandbox.exports;
+// as telas usam as cores do tema do app (src/constants/theme.ts)
+const theme = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(path.join(__dirname, "../src/constants/theme.ts"), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, theme);
 const originalFetch = global.fetch;
 afterEach(() => { global.fetch = originalFetch; api.setOrdersTokenProvider(() => "session"); });
 const relations = {
@@ -176,6 +179,7 @@ test("an edit form with a catalog error still submits valid original order data 
     if (name === "react") return { useState: initial => [typeof initial === "function" ? initial() : initial, () => {}], useRef: current => ({ current }) };
     if (name === "react-native") return { Platform: { OS: "web", select: options => options.web }, StyleSheet: { create: value => value }, View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable", ScrollView: "ScrollView", KeyboardAvoidingView: "KeyboardAvoidingView" };
     if (name.endsWith("/services/ordens")) return api;
+    if (name.endsWith("/constants/theme")) return theme.exports;
     return {};
   } };
   vm.runInNewContext(screenJs.outputText, screen);
@@ -242,6 +246,7 @@ test("saving from an edit screen issues PUT even while the general list is loadi
     if (name === "expo-router") return { useFocusEffect: () => {} };
     if (name === "react-native") return { Platform: { OS: "web", select: options => options.web }, StyleSheet: { create: value => value }, View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable", ScrollView: "ScrollView", KeyboardAvoidingView: "KeyboardAvoidingView" };
     if (name.endsWith("/services/ordens")) return api;
+    if (name.endsWith("/constants/theme")) return theme.exports;
     return {};
   } };
   vm.runInNewContext(compiled.outputText, screen);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { colors, radius, typography } from "@/constants/theme";
 
 type Props = { value: string; dateOnly: boolean; onConfirm: (value: string) => void; onClose: () => void };
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -84,31 +85,31 @@ export function OrderDateTimePicker({ value, dateOnly, onConfirm, onClose }: Pro
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(26,26,46,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
-  dialog: { width: "100%", maxWidth: 360, maxHeight: "90%", backgroundColor: "white", borderRadius: 20, padding: 20 },
-  title: { color: "#5b2d8e", fontSize: 20, fontWeight: "800", marginBottom: 16 },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 20 },
+  dialog: { width: "100%", maxWidth: 360, maxHeight: "90%", backgroundColor: colors.white, borderRadius: radius.md, padding: 20 },
+  title: { ...typography.title, fontSize: 20, color: colors.primary, marginBottom: 16 },
   monthBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  arrow: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#f0eef8", alignItems: "center", justifyContent: "center" },
-  arrowText: { fontSize: 28, color: "#6a3db8" },
-  month: { fontSize: 15, fontWeight: "700", color: "#4a4a6a", textTransform: "capitalize" },
+  arrow: { width: 40, height: 40, borderRadius: radius.circle, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" },
+  arrowText: { fontSize: 28, color: colors.primary },
+  month: { fontSize: 15, fontWeight: "700", color: colors.textMuted, textTransform: "capitalize" },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: "14.285714%", height: 40, alignItems: "center", justifyContent: "center" },
-  weekDay: { fontSize: 12, fontWeight: "600", color: "#9a98b0" },
-  day: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  daySelected: { backgroundColor: "#6a3db8" },
-  dayText: { fontSize: 14, color: "#1a1a2e" },
-  dayTextSelected: { color: "white", fontWeight: "700" },
-  selectedDate: { fontSize: 13, color: "#6a3db8", textAlign: "center", marginTop: 8 },
+  weekDay: { fontSize: 12, fontWeight: "600", color: colors.textLight },
+  day: { width: 36, height: 36, borderRadius: radius.circle, alignItems: "center", justifyContent: "center" },
+  daySelected: { backgroundColor: colors.primary },
+  dayText: { fontSize: 14, color: colors.text },
+  dayTextSelected: { color: colors.white, fontWeight: "700" },
+  selectedDate: { fontSize: 13, color: colors.primary, textAlign: "center", marginTop: 8 },
   timeSection: { marginTop: 16 },
-  label: { color: "#4a4a6a", fontSize: 14, marginBottom: 8 },
+  label: { color: colors.textMuted, fontSize: 14, marginBottom: 8 },
   timeRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  timeInput: { width: 64, borderWidth: 1.5, borderColor: "#e0dff0", borderRadius: 14, backgroundColor: "#f0eef8", color: "#1a1a2e", fontSize: 20, textAlign: "center", padding: 12 },
-  colon: { fontSize: 20, fontWeight: "700", color: "#5b2d8e" },
-  error: { color: "#e03535", fontSize: 12, textAlign: "center", marginTop: 8 },
+  timeInput: { width: 64, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.primaryLight, color: colors.text, fontSize: 20, textAlign: "center", padding: 12 },
+  colon: { fontSize: 20, fontWeight: "700", color: colors.primary },
+  error: { color: colors.danger, fontSize: 12, textAlign: "center", marginTop: 8 },
   actions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancel: { flex: 1, padding: 14, borderRadius: 14, backgroundColor: "#f0eef8", alignItems: "center" },
-  cancelText: { fontSize: 14, fontWeight: "700", color: "#5b2d8e" },
-  confirm: { flex: 1, padding: 14, borderRadius: 14, backgroundColor: "#6a3db8", alignItems: "center" },
-  confirmText: { fontSize: 14, fontWeight: "700", color: "white" },
+  cancel: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, backgroundColor: colors.primaryLight, alignItems: "center" },
+  cancelText: { ...typography.button, fontSize: 15, color: colors.primary },
+  confirm: { flex: 1, paddingVertical: 14, borderRadius: radius.sm, backgroundColor: colors.primaryDark, alignItems: "center" },
+  confirmText: { ...typography.button, fontSize: 15, color: colors.white },
   disabled: { opacity: 0.5 },
 });

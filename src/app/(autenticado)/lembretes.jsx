@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { ScrollView, StyleSheet } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { ReminderCategoryCard } from "../../components/lembretes/ReminderCategoryCard";
 import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
 import { colors, spacing } from "../../constants/theme";
@@ -32,6 +32,7 @@ export default function Lembretes() {
         subtitle="Selecione uma categoria de lembrete para gerenciar o envio de notificações para seus pacientes."
       />
       {loading && <ActivityIndicator color={colors.primary} style={styles.loading} />}
+      <View style={styles.cards}>
       <ReminderCategoryCard
         title="Lembrete de Horário"
         description="Clientes com OS registrada e atendimento futuro cadastrado."
@@ -46,12 +47,14 @@ export default function Lembretes() {
         icon="refresh-outline"
         onPress={() => router.push("/lembrete-retorno")}
       />
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  container: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  container: { paddingBottom: spacing.xxl },
+  cards: { paddingHorizontal: spacing.lg },
   loading: { marginBottom: spacing.md },
 });
