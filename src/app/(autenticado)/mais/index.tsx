@@ -54,6 +54,7 @@ export default function MeuPerfil() {
   const itens: ItemMenu[] = [
     { titulo: "Editar Perfil", icone: "create-outline", href: "/mais/editar" },
     { titulo: "Alterar Senha", icone: "lock-closed-outline", href: "/mais/alterar-senha" },
+    { titulo: "Importar Nota Fiscal", icone: "receipt-outline", href: "/notas/captura" },
     { titulo: "Notificações", icone: "notifications-outline", onPress: () => showToast("Em breve") },
     { titulo: "Sobre o App", icone: "information-circle-outline", href: "/mais/sobre" },
     { titulo: "Sair", icone: "log-out-outline", onPress: sair, perigo: true },

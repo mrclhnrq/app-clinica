@@ -19,6 +19,8 @@ export function Button({ title, onPress, variant = "primary", pill, disabled, lo
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(inativo), busy: Boolean(loading) }}
       onPress={onPress}
       disabled={inativo}
       style={({ pressed }) => [

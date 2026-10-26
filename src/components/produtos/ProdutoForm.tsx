@@ -31,7 +31,7 @@ function toFormState(p?: Produto): FormState {
     categoria: p?.categoria ?? "",
     estoque: p ? String(p.estoque) : "",
     valorCusto: p ? toMoneyText(p.valorCusto) : "",
-    valorVenda: p ? toMoneyText(p.valorVenda) : "",
+    valorVenda: p?.valorVenda === null || !p ? "" : toMoneyText(p.valorVenda),
   };
 }
 

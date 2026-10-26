@@ -6,8 +6,8 @@ export type Produto = {
   categoria: string;
   estoque: number;
   valorCusto: number;
-  valorVenda: number;
+  valorVenda: number | null;
   ativo: boolean;
 };
 
-export type ProdutoInput = Omit<Produto, "id" | "ativo">;
+export type ProdutoInput = Omit<Produto, "id" | "ativo" | "valorVenda"> & { valorVenda: number };

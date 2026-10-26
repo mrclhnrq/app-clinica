@@ -66,6 +66,8 @@ export default function AutenticadoLayout() {
               <Tabs.Screen name="lembretes" options={{ href: null }} />
               <Tabs.Screen name="lembrete-horario" options={{ href: null }} />
               <Tabs.Screen name="lembrete-retorno" options={{ href: null }} />
+              {/* importação de nota fiscal: rotas existem, mas não viram abas */}
+              <Tabs.Screen name="notas" options={{ href: null }} />
             </Tabs>
           </ClientesProvider>
         </CombosProvider>

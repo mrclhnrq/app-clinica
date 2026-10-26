@@ -10,7 +10,7 @@ function fromDto(dto: backend.ServicoProdutoDto): Produto {
     categoria: dto.categoria ?? "",
     estoque: dto.estoque ?? 0,
     valorCusto: dto.despesa ?? 0,
-    valorVenda: dto.valorVenda ?? 0,
+    valorVenda: dto.valorVenda ?? null,
     ativo: dto.ativo ?? true,
   };
 }
