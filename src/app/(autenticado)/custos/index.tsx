@@ -1,6 +1,6 @@
 
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ScreenHeader } from "@/components/ScreenHeader";
@@ -8,6 +8,8 @@ import { useToast } from "@/components/ToastProvider";
 import { colors, spacing } from "@/constants/theme";
 import { listarCustosExtras, listarCustosFixos } from "@/services/custoService";
 import { CustoExtra, CustoFixo } from "@/types/custo";
+
+type LinhaCusto = { id: string; nome: string; descricao: string; valor: number; data?: string };
 
 export default function Custos() {
     var [aba, setAba] = useState("fixos");
@@ -36,11 +38,21 @@ export default function Custos() {
         }
     }
 
-    useEffect(() => {
+    // recarrega ao voltar do formulário ou do detalhe
+    useFocusEffect(useCallback(() => {
         carregarCustos();
-    }, []);
+    }, [])); // eslint-disable-line react-hooks/exhaustive-deps
 
-    var lista = aba === "fixos" ? fixos : extras;
+    // fixos e extras têm campos diferentes: a lista usa um formato comum
+    var lista: LinhaCusto[] = aba === "fixos"
+        ? fixos.map((c) => ({ id: c.idCustoFixo, nome: c.nome, descricao: c.descricao, valor: c.valorMensal }))
+        : extras.map((c) => ({ id: c.idCustoExtra, nome: c.nome, descricao: c.descricao, valor: c.valor, data: c.data }));
+
+    function formatarData(data?: string) {
+        if (!data) return "";
+        var [ano, mes, dia] = data.slice(0, 10).split("-");
+        return `${dia}/${mes}/${ano}`;
+    }
 
     function formatarValor(valor: number) {
         return valor.toLocaleString("pt-BR", {
@@ -51,7 +63,7 @@ export default function Custos() {
 
     return (
         <View style={styles.container}>
-            <ScreenHeader title="Fluxo de Custos" />
+            <ScreenHeader title="Fluxo de Custos" onBack={() => router.back()} />
 
             <View style={styles.abas}>
                 <Text
@@ -76,11 +88,7 @@ export default function Custos() {
             ) : (
                 <FlatList
                     data={lista}
-                    keyExtractor={(item) =>
-                        aba === "fixos"
-                            ? (item as CustoFixo).idCustoFixo
-                            : (item as CustoExtra).idCustoExtra
-                    }
+                    keyExtractor={(item) => item.id}
                     contentContainerStyle={styles.lista}
                     ListEmptyComponent={
                         <Text style={styles.mensagem}>
@@ -90,10 +98,7 @@ export default function Custos() {
                     renderItem={({ item }) => {
                         var nome = item.nome;
                         var descricao = item.descricao;
-                        var valor =
-                            aba === "fixos"
-                                ? (item as CustoFixo).valorMensal
-                                : (item as CustoExtra).valor;
+                        var valor = item.valor;
 
                         return (
                             <Pressable
@@ -103,10 +108,7 @@ export default function Custos() {
                                         pathname: "/custos/detalhe",
                                         params: {
                                             tipo: aba === "fixos" ? "fixo" : "extra",
-                                            id:
-                                                aba === "fixos"
-                                                    ? (item as CustoFixo).idCustoFixo
-                                                    : (item as CustoExtra).idCustoExtra,
+                                            id: item.id,
                                         },
                                     })
                                 }
@@ -120,7 +122,7 @@ export default function Custos() {
 
                                     {aba === "extras" && (
                                         <Text style={styles.data}>
-                                            {(item as CustoExtra).data}
+                                            {formatarData(item.data)}
                                         </Text>
                                     )}
 

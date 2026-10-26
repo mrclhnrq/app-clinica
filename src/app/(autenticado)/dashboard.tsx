@@ -6,11 +6,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { FilterChips } from "@/components/FilterChips";
 import { colors, radius, spacing, typography } from "@/constants/theme";
-import { listarOrdensServico, OrdemServico } from "@/services/ordemServicoService";
-import { listar as listarServicos } from "@/services/servicoService";
-import { Servico } from "@/types/servico";
+import { emptyRelations, isProduct, itemName, itemTotals, listOrders, type ServiceOrder } from "@/services/ordens";
 import { useClientes } from "@/context/ClientesContext";
-import { getErrorMessage } from "@/services/api";
+
+type OrdemServico = ServiceOrder;
 
 type Periodo = "hoje" | "semana" | "mes" | "ano";
 type PontoGrafico = { label: string; valor: number };
@@ -23,8 +22,13 @@ const opcoesPeriodo = [
 ];
 
 function dataLocal(data: string) {
-  var partes = data.split("-").map(Number);
+  var partes = data.slice(0, 10).split("-").map(Number);
   return new Date(partes[0], partes[1] - 1, partes[2]);
+}
+
+// os indicadores usam a data do atendimento (dt_hora); OS antigas sem ela usam a data de criação
+function dataDaOrdem(ordem: OrdemServico) {
+  return ordem.dt_hora || ordem.dataCriacao;
 }
 
 function inicioDaSemana(data: Date) {
@@ -55,20 +59,20 @@ function montarGrafico(ordens: OrdemServico[], periodo: Periodo, hoje: Date): Po
   var inicioSemana = inicioDaSemana(hoje);
 
   if (periodo === "hoje") {
-    pontos.push({ label: "Hoje", valor: ordens.filter((o) => mesmaData(dataLocal(o.dataCriacao), hoje)).reduce((s, o) => s + o.valorFinal, 0) });
+    pontos.push({ label: "Hoje", valor: ordens.filter((o) => mesmaData(dataLocal(dataDaOrdem(o)), hoje)).reduce((s, o) => s + o.valorFinal, 0) });
   } else if (periodo === "semana") {
     var dias = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
     for (var i = 0; i < 7; i++) {
       var dia = new Date(inicioSemana);
       dia.setDate(inicioSemana.getDate() + i);
-      pontos.push({ label: dias[dia.getDay()], valor: ordens.filter((o) => mesmaData(dataLocal(o.dataCriacao), dia)).reduce((s, o) => s + o.valorFinal, 0) });
+      pontos.push({ label: dias[dia.getDay()], valor: ordens.filter((o) => mesmaData(dataLocal(dataDaOrdem(o)), dia)).reduce((s, o) => s + o.valorFinal, 0) });
     }
   } else if (periodo === "mes") {
     var semanasNoMes = Math.ceil(hoje.getDate() / 7);
     for (var j = 0; j < semanasNoMes; j++) {
       var numeroSemana = j + 1;
       pontos.push({ label: "Sem " + numeroSemana, valor: ordens.filter((o) => {
-        var d = dataLocal(o.dataCriacao);
+        var d = dataLocal(dataDaOrdem(o));
         return d.getFullYear() === hoje.getFullYear() && d.getMonth() === hoje.getMonth() && Math.ceil(d.getDate() / 7) === numeroSemana;
       }).reduce((s, o) => s + o.valorFinal, 0) });
     }
@@ -76,7 +80,7 @@ function montarGrafico(ordens: OrdemServico[], periodo: Periodo, hoje: Date): Po
     var meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
     for (var k = 0; k <= hoje.getMonth(); k++) {
       pontos.push({ label: meses[k], valor: ordens.filter((o) => {
-        var d = dataLocal(o.dataCriacao);
+        var d = dataLocal(dataDaOrdem(o));
         return d.getFullYear() === hoje.getFullYear() && d.getMonth() === k;
       }).reduce((s, o) => s + o.valorFinal, 0) });
     }
@@ -87,7 +91,6 @@ function montarGrafico(ordens: OrdemServico[], periodo: Periodo, hoje: Date): Po
 export default function Dashboard() {
   var [periodo, setPeriodo] = useState<Periodo>("mes");
   var [ordens, setOrdens] = useState<OrdemServico[]>([]);
-  var [servicos, setServicos] = useState<Servico[]>([]);
   var [carregando, setCarregando] = useState(true);
   var [erro, setErro] = useState("");
   var { clientes } = useClientes();
@@ -96,11 +99,9 @@ export default function Dashboard() {
     setCarregando(true);
     setErro("");
     try {
-      var resultados = await Promise.all([listarOrdensServico(), listarServicos()]);
-      setOrdens(resultados[0]);
-      setServicos(resultados[1]);
+      setOrdens(await listOrders());
     } catch (error) {
-      setErro(getErrorMessage(error));
+      setErro(error instanceof Error ? error.message : "Não foi possível carregar o dashboard.");
     } finally {
       setCarregando(false);
     }
@@ -111,50 +112,36 @@ export default function Dashboard() {
   }, []));
 
   var hoje = useMemo(() => new Date(), [carregando]);
-  var ordensFiltradas = useMemo(() => ordens.filter((o) => dentroDoPeriodo(o.dataCriacao, periodo, hoje)), [ordens, periodo, hoje]);
-  var valorPeriodo = ordensFiltradas.reduce((s, o) => s + (Number(o.valorFinal) || 0), 0);
-  var ticketMedio = ordensFiltradas.length ? valorPeriodo / ordensFiltradas.length : 0;
-  var grafico = useMemo(() => montarGrafico(ordens, periodo, hoje), [ordens, periodo, hoje]);
+  // canceladas não contam; o faturamento considera só os atendimentos concluídos
+  var ordensValidas = useMemo(() => ordens.filter((o) => o.status !== "CANCELADA"), [ordens]);
+  var concluidas = useMemo(() => ordensValidas.filter((o) => o.status === "CONCLUIDA"), [ordensValidas]);
+  var ordensFiltradas = useMemo(() => ordensValidas.filter((o) => dentroDoPeriodo(dataDaOrdem(o), periodo, hoje)), [ordensValidas, periodo, hoje]);
+  var concluidasNoPeriodo = useMemo(() => concluidas.filter((o) => dentroDoPeriodo(dataDaOrdem(o), periodo, hoje)), [concluidas, periodo, hoje]);
+  var valorPeriodo = concluidasNoPeriodo.reduce((s, o) => s + (Number(o.valorFinal) || 0), 0);
+  var ticketMedio = concluidasNoPeriodo.length ? valorPeriodo / concluidasNoPeriodo.length : 0;
+  var grafico = useMemo(() => montarGrafico(concluidas, periodo, hoje), [concluidas, periodo, hoje]);
   var maiorBarra = Math.max(1, ...grafico.map((p) => p.valor));
 
 
+  // serviços e combos mais vendidos nos atendimentos concluídos, pelo preço gravado em cada OS
   var ranking = useMemo(() => {
-    var mapa = new Map<string, {
-      nome: string;
-      valor: number;
-      quantidade: number;
-    }>();
-
-    ordensFiltradas.forEach((ordem) => {
-      var nome = (ordem.observacao || "").trim();
-
-      if (!nome) return;
-
-      var chave = nome.toLocaleLowerCase("pt-BR");
-      var valor = Number(ordem.valorFinal) || 0;
-
-      if (valor <= 0) return;
-
-      var atual = mapa.get(chave);
-
-      if (atual) {
-        atual.valor += valor;
-        atual.quantidade += 1;
-      } else {
-        mapa.set(chave, {
-          nome: nome,
-          valor: valor,
-          quantidade: 1,
-        });
-      }
+    var mapa = new Map<string, { nome: string; valor: number; quantidade: number }>();
+    concluidasNoPeriodo.forEach((ordem) => {
+      ordem.itens.filter((item) => !isProduct(item)).forEach((item) => {
+        var nome = itemName(item, emptyRelations).trim();
+        var chave = nome.toLocaleLowerCase("pt-BR");
+        var valor = itemTotals(item, emptyRelations)?.total ?? 0;
+        var atual = mapa.get(chave);
+        if (atual) {
+          atual.valor += valor;
+          atual.quantidade += item.quantidade;
+        } else {
+          mapa.set(chave, { nome: nome, valor: valor, quantidade: item.quantidade });
+        }
+      });
     });
-
-    return Array.from(mapa.values())
-      .filter((item) => item.valor > 0)
-      .sort((a, b) => b.valor - a.valor);
-  }, [ordensFiltradas]);
-
-
+    return Array.from(mapa.values()).sort((a, b) => b.valor - a.valor || b.quantidade - a.quantidade).slice(0, 10);
+  }, [concluidasNoPeriodo]);
 
   return (
     <View style={styles.container}>
@@ -178,15 +165,15 @@ export default function Dashboard() {
         ) : (
           <>
             <View style={styles.gradeIndicadores}>
-              <Indicador titulo="Valor das ordens" valor={dinheiro(valorPeriodo)} icone="cash-outline" cor={colors.primary} legenda="No período selecionado" />
-              <Indicador titulo="Ordens" valor={String(ordensFiltradas.length)} icone="document-text-outline" cor={colors.gold} legenda="Criadas no período" />
+              <Indicador titulo="Faturamento" valor={dinheiro(valorPeriodo)} icone="cash-outline" cor={colors.primary} legenda="Atendimentos concluídos" />
+              <Indicador titulo="Ordens" valor={String(ordensFiltradas.length)} icone="document-text-outline" cor={colors.gold} legenda="Até hoje, sem as canceladas" />
               <Indicador titulo="Clientes cadastrados" valor={String(clientes.length)} icone="people-outline" cor="#558B7D" legenda="Total no cadastro" />
-              <Indicador titulo="Ticket médio" valor={dinheiro(ticketMedio)} icone="stats-chart-outline" cor="#7C78B8" legenda="Valor médio por ordem" />
+              <Indicador titulo="Ticket médio" valor={dinheiro(ticketMedio)} icone="stats-chart-outline" cor="#7C78B8" legenda="Por atendimento concluído" />
             </View>
 
             <View style={styles.cardSecao}>
               <View style={styles.tituloSecaoLinha}>
-                <View><Text style={styles.tituloSecao}>Valor das ordens</Text><Text style={styles.subtituloSecao}>Distribuição por {periodo === "hoje" ? "dia" : periodo === "semana" ? "dia da semana" : periodo === "mes" ? "semana do mês" : "mês"}</Text></View>
+                <View><Text style={styles.tituloSecao}>Faturamento</Text><Text style={styles.subtituloSecao}>Distribuição por {periodo === "hoje" ? "dia" : periodo === "semana" ? "dia da semana" : periodo === "mes" ? "semana do mês" : "mês"}</Text></View>
                 <Ionicons name="bar-chart-outline" size={22} color={colors.primary} />
               </View>
               <View style={styles.grafico}>
@@ -200,25 +187,25 @@ export default function Dashboard() {
                   </View>
                 ))}
               </View>
-              {ordensFiltradas.length === 0 && <Text style={styles.avisoSemDados}>Nenhuma ordem encontrada neste período.</Text>}
+              {concluidasNoPeriodo.length === 0 && <Text style={styles.avisoSemDados}>Nenhum atendimento concluído neste período.</Text>}
             </View>
 
             <View style={styles.cardSecao}>
               <View style={styles.tituloSecaoLinha}>
-                <View><Text style={styles.tituloSecao}>Serviços em destaque</Text><Text style={styles.subtituloSecao}>Todos os serviços cadastrados, ordenados pelo valor</Text></View>
+                <View><Text style={styles.tituloSecao}>Serviços em destaque</Text><Text style={styles.subtituloSecao}>Serviços e combos dos atendimentos concluídos</Text></View>
                 <Ionicons name="trophy-outline" size={22} color={colors.gold} />
               </View>
               {ranking.length === 0 ? (
-                <Text style={styles.avisoSemDados}>Nenhum serviço cadastrado.</Text>
+                <Text style={styles.avisoSemDados}>Nenhum serviço vendido neste período.</Text>
               ) : ranking.map((item, index) => (
                 <View key={item.nome + index} style={styles.linhaRanking}>
                   <View style={styles.posicao}><Text style={styles.posicaoTexto}>{index + 1}</Text></View>
-                  <View style={styles.infoRanking}><Text style={styles.nomeServico} numberOfLines={1}>{item.nome}</Text><Text style={styles.qtdServico}>{item.quantidade} {item.quantidade === 1 ? "unidade" : "unidades"} no período</Text></View>
+                  <View style={styles.infoRanking}><Text style={styles.nomeServico} numberOfLines={1}>{item.nome}</Text><Text style={styles.qtdServico}>{item.quantidade} {item.quantidade === 1 ? "venda" : "vendas"} no período</Text></View>
                   <Text style={styles.valorRanking}>{dinheiro(item.valor)}</Text>
                 </View>
               ))}
             </View>
-            <View style={styles.nota}><Ionicons name="information-circle-outline" size={18} color={colors.textMuted} /><Text style={styles.notaTexto}>A API não informa o status de conclusão das ordens. Por isso, os valores acima consideram todas as ordens criadas no período, e não apenas as concluídas. O ranking usa os preços atuais dos serviços.</Text></View>
+            <View style={styles.nota}><Ionicons name="information-circle-outline" size={18} color={colors.textMuted} /><Text style={styles.notaTexto}>Faturamento, ticket médio e ranking consideram só os atendimentos concluídos, pela data do atendimento e com os preços gravados em cada ordem. Ordens canceladas não entram.</Text></View>
           </>
         )}
       </ScrollView>

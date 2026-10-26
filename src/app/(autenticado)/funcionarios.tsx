@@ -1,43 +1,40 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  type TextInputProps,
-  View,
+  ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text,
+  TextInput, View, type TextInputProps,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { employeeCpf, employeePayload, employeeRequest, ensureUniqueEmployee, type Employee, type EmployeeFormValues } from "../../services/funcionarios";
+import { Button } from "@/components/Button";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { PasswordInput } from "@/components/PasswordInput";
+import { ScreenFooter } from "@/components/ScreenFooter";
+import { ScreenHeader } from "@/components/ScreenHeader";
+import { SearchInput } from "@/components/SearchInput";
+import { useToast } from "@/components/ToastProvider";
+import { colors, radius, spacing, typography } from "@/constants/theme";
+import {
+  employeeCpf, employeePayload, employeeRequest, ensureUniqueEmployee, type Employee, type EmployeeFormValues,
+} from "@/services/funcionarios";
 
-type Screen = "list" | "detail" | "add" | "edit" | "delete";
+type Screen = "list" | "detail" | "form";
 
-function notify(title: string, message: string) {
-  if (Platform.OS === "web") window.alert(`${title}\n${message}`);
-  else Alert.alert(title, message);
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Não foi possível concluir a operação.";
-}
-
-function initials(name: string) {
-  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase();
-}
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : "Não foi possível concluir a operação.");
+const initials = (name: string) =>
+  name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+const asList = (data: unknown): Employee[] => (Array.isArray(data) ? data : []); // 204 chega sem corpo
 
 export default function FuncionariosScreen() {
+  const { showToast } = useToast();
   const [screen, setScreen] = useState<Screen>("list");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
+  const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const pending = useRef(false);
   const [revision, setRevision] = useState(0);
 
@@ -47,9 +44,10 @@ export default function FuncionariosScreen() {
     setLoading(true);
     setListError("");
     const timer = setTimeout(() => {
-      employeeRequest<Employee[]>(search.trim() ? `?busca=${encodeURIComponent(search.trim())}` : "", "GET", undefined, controller.signal)
-        .then(result => { if (!controller.signal.aborted) setEmployees(result); })
-        .catch(error => {
+      const busca = search.trim() ? `?busca=${encodeURIComponent(search.trim())}` : "";
+      employeeRequest<Employee[]>(busca, "GET", undefined, controller.signal)
+        .then((result) => { if (!controller.signal.aborted) setEmployees(asList(result)); })
+        .catch((error) => {
           if (!controller.signal.aborted) { setEmployees([]); setListError(errorMessage(error)); }
         })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
@@ -57,84 +55,102 @@ export default function FuncionariosScreen() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [screen, search, revision]);
 
-  async function openEmployee(employee: Employee) {
+  async function run(action: () => Promise<void>) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
     try {
-      setSelected(await employeeRequest<Employee>(`/${employee.idFuncionario}`));
-      setScreen("detail");
-    } catch (error) { notify("Erro ao carregar funcionário", errorMessage(error)); }
-    finally { pending.current = false; setBusy(false); }
+      await action();
+    } catch (error) {
+      showToast(errorMessage(error), "error");
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
   }
 
-  async function saveEmployee(values: EmployeeFormValues) {
+  const openEmployee = (employee: Employee) => run(async () => {
+    setSelected(await employeeRequest<Employee>(`/${employee.idFuncionario}`));
+    setScreen("detail");
+  });
+
+  const saveEmployee = (values: EmployeeFormValues) => run(async () => {
+    if (editing && !selected) return;
+    const payload = employeePayload(values, editing);
+    ensureUniqueEmployee(payload, asList(await employeeRequest<Employee[]>()), editing ? selected!.idFuncionario : undefined);
+    const saved = await employeeRequest<Employee>(editing ? `/${selected!.idFuncionario}` : "", editing ? "PUT" : "POST", payload);
+    setSelected(saved);
+    setScreen(editing ? "detail" : "list");
+    showToast(editing ? "Funcionário atualizado." : "Funcionário cadastrado.");
+  });
+
+  const deleteEmployee = () => run(async () => {
+    if (!selected) return;
+    await employeeRequest<void>(`/${selected.idFuncionario}`, "DELETE");
+    setEmployees((current) => current.filter((employee) => employee.idFuncionario !== selected.idFuncionario));
+    setConfirmDelete(false);
+    setSelected(null);
+    setScreen("list");
+    showToast("Funcionário excluído.");
+  });
+
+  const back = useCallback(() => {
     if (pending.current) return;
-    pending.current = true;
-    setBusy(true);
-    try {
-      const editing = screen === "edit";
-      if (editing && !selected) return;
-      const payload = employeePayload(values, editing);
-      const all = await employeeRequest<Employee[]>();
-      ensureUniqueEmployee(payload, all, editing ? selected!.idFuncionario : undefined);
-      const saved = await employeeRequest<Employee>(editing ? `/${selected!.idFuncionario}` : "", editing ? "PUT" : "POST", payload);
-      setSelected(saved);
-      setScreen(editing ? "detail" : "list");
-      notify("Sucesso", editing ? "Funcionário atualizado." : "Funcionário cadastrado.");
-    } catch (error) { notify("Não foi possível salvar", errorMessage(error)); }
-    finally { pending.current = false; setBusy(false); }
-  }
+    setScreen((current) => (current === "form" && editing ? "detail" : "list"));
+  }, [editing]);
 
-  async function deleteEmployee() {
-    if (pending.current || !selected) return;
-    pending.current = true;
-    setBusy(true);
-    try {
-      await employeeRequest<void>(`/${selected.idFuncionario}`, "DELETE");
-      setEmployees(current => current.filter(employee => employee.idFuncionario !== selected.idFuncionario));
-      setSelected(null);
-      setScreen("list");
-      notify("Sucesso", "Funcionário excluído.");
-    } catch (error) { notify("Não foi possível excluir", errorMessage(error)); }
-    finally { pending.current = false; setBusy(false); }
-  }
+  useFocusEffect(useCallback(() => {
+    const listener = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (screen === "list") return false;
+      back();
+      return true;
+    });
+    return () => listener.remove();
+  }, [screen, back]));
 
   return (
-    <View style={styles.routeBackground}>
-      <SafeAreaView style={[styles.screen, screen === "delete" && styles.dimScreen]}>
-        {screen === "list" && (
-          <EmployeeList
-            employees={employees}
-            search={search}
-            onSearch={setSearch}
-            loading={loading}
-            error={listError}
-            busy={busy}
-            onRetry={() => setRevision(current => current + 1)}
-            onAdd={() => setScreen("add")}
-            onBack={() => router.push("/home")}
-            onOpen={openEmployee}
-          />
-        )}
-        {screen === "detail" && selected && (
-          <EmployeeDetail
-            employee={selected}
-            onEdit={() => setScreen("edit")}
-            onBack={() => setScreen("list")}
-            onDelete={() => setScreen("delete")}
-          />
-        )}
-        {(screen === "add" || screen === "edit") && <EmployeeForm
-          employee={screen === "edit" ? selected : null}
+    <View style={styles.container}>
+      {screen === "list" && (
+        <EmployeeList
+          employees={employees}
+          search={search}
+          onSearch={setSearch}
+          loading={loading}
+          error={listError}
           busy={busy}
-          onSave={saveEmployee}
-          onBack={() => { if (!pending.current) setScreen(screen === "edit" ? "detail" : "list"); }}
-        />}
-        {screen === "delete" && (
-          <DeleteSheet busy={busy} onCancel={() => setScreen("detail")} onConfirm={deleteEmployee} />
-        )}
-      </SafeAreaView>
+          onRetry={() => setRevision((current) => current + 1)}
+          onAdd={() => { setEditing(false); setScreen("form"); }}
+          onBack={() => router.back()}
+          onOpen={(employee) => void openEmployee(employee)}
+        />
+      )}
+      {screen === "detail" && selected && (
+        <EmployeeDetail
+          employee={selected}
+          busy={busy}
+          onEdit={() => { setEditing(true); setScreen("form"); }}
+          onBack={back}
+          onDelete={() => setConfirmDelete(true)}
+        />
+      )}
+      {screen === "form" && (
+        <EmployeeForm
+          key={editing ? `edit-${selected?.idFuncionario}` : "new"}
+          employee={editing ? selected : null}
+          busy={busy}
+          onSave={(values) => void saveEmployee(values)}
+          onBack={back}
+        />
+      )}
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Confirmar exclusão"
+        message="Tem certeza que deseja excluir este funcionário?"
+        warning="Esta ação não pode ser desfeita."
+        loading={busy}
+        onConfirm={() => void deleteEmployee()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </View>
   );
 }
@@ -142,162 +158,104 @@ export default function FuncionariosScreen() {
 function AdminBar() {
   return (
     <View style={styles.adminBar}>
-      <View style={styles.adminShield}>
-        <Ionicons name="shield-checkmark-outline" size={16} color={palette.primary} />
-      </View>
+      <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
       <Text style={styles.adminText}>MODO ADMINISTRADOR</Text>
     </View>
   );
 }
 
-function Header({
-  title,
-  onBack,
-  action,
-  close = false,
-}: {
-  title: string;
-  onBack: () => void;
-  action?: React.ReactNode;
-  close?: boolean;
-}) {
-  return (
-    <View style={close ? styles.formHeader : styles.header}>
-      <Pressable onPress={onBack} style={close ? styles.formHeaderTitle : styles.headerTitle}>
-        <Text style={close ? styles.closeIcon : styles.backIcon}>{close ? "x" : "<"}</Text>
-        <Text style={close ? styles.formTitle : styles.title}>{title}</Text>
-      </Pressable>
-      {action}
-    </View>
-  );
-}
-
-function EmployeeList({
-  employees, search, onSearch, loading, error, busy, onRetry,
-  onAdd,
-  onBack,
-  onOpen,
-}: {
-  employees: Employee[];
-  search: string;
-  onSearch: (value: string) => void;
-  loading: boolean;
-  error: string;
-  busy: boolean;
-  onRetry: () => void;
-  onAdd: () => void;
-  onBack: () => void;
-  onOpen: (employee: Employee) => void;
+function EmployeeList({ employees, search, onSearch, loading, error, busy, onRetry, onAdd, onBack, onOpen }: {
+  employees: Employee[]; search: string; onSearch: (value: string) => void; loading: boolean; error: string;
+  busy: boolean; onRetry: () => void; onAdd: () => void; onBack: () => void; onOpen: (employee: Employee) => void;
 }) {
   return (
     <>
-      <AdminBar />
-      <Header
-        title="Funcionarios"
+      <ScreenHeader
+        title="Funcionários"
         onBack={onBack}
-        action={
-          <Pressable onPress={onAdd} style={styles.addButton}>
-            <Text style={styles.addButtonText}>+</Text>
+        right={
+          <Pressable onPress={onAdd} style={styles.addButton} accessibilityRole="button" accessibilityLabel="Novo funcionário">
+            <Ionicons name="add" size={26} color={colors.white} />
           </Pressable>
         }
       />
+      <AdminBar />
       <View style={styles.searchWrap}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search-outline" size={18} color="#aaaaaa" />
-          <TextInput style={styles.searchText} placeholder="Buscar funcionarios..." placeholderTextColor={palette.muted} value={search} onChangeText={onSearch} />
-        </View>
+        <SearchInput placeholder="Buscar funcionários..." value={search} onChangeText={onSearch} />
       </View>
-      <View style={styles.employeeList}>
+      <ScrollView contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        {!!error && (
+          <Pressable style={styles.errorBox} onPress={onRetry} accessibilityRole="button">
+            <Ionicons name="cloud-offline-outline" size={20} color={colors.danger} />
+            <Text style={styles.errorText}>{error}{"\n"}Toque para tentar novamente.</Text>
+          </Pressable>
+        )}
+        {loading && <ActivityIndicator style={styles.loader} color={colors.primary} />}
         {!loading && !error && employees.map((employee) => (
-          <Pressable key={employee.idFuncionario} disabled={busy} onPress={() => onOpen(employee)} style={styles.employeeCard}>
+          <Pressable
+            key={employee.idFuncionario}
+            disabled={busy}
+            onPress={() => onOpen(employee)}
+            style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+            accessibilityRole="button"
+          >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initials(employee.nome)}</Text>
             </View>
-            <View style={styles.employeeInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.employeeName}>{employee.nome}</Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.statusText,
-                    ]}>
-                    Não informado
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.employeeRole}>{employee.descricao}</Text>
-              <Text style={styles.employeeEmail}>{employee.email}</Text>
+            <View style={styles.flex}>
+              <Text style={styles.name} numberOfLines={1}>{employee.nome}</Text>
+              {!!employee.descricao && <Text style={styles.role} numberOfLines={1}>{employee.descricao}</Text>}
+              <Text style={styles.muted} numberOfLines={1}>{employee.email}</Text>
             </View>
-            <Text style={styles.chevron}>{">"}</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
           </Pressable>
         ))}
-      </View>
-      <View style={styles.countWrap}>
-        <Text style={styles.countText} onPress={error ? onRetry : undefined} accessibilityRole={error ? "button" : undefined}>
-          {loading ? "Carregando funcionários..." : error ? `${error} Toque para tentar novamente.` : busy ? "Carregando ficha..." : `Mostrando ${employees.length} funcionarios${search.trim() ? " encontrados" : " cadastrados"}`}
-        </Text>
-      </View>
+        {!loading && !error && (
+          <Text style={styles.counter}>
+            {employees.length === 0
+              ? search.trim() ? "Nenhum funcionário encontrado." : "Nenhum funcionário cadastrado."
+              : `Mostrando ${employees.length} ${employees.length === 1 ? "funcionário" : "funcionários"}`}
+          </Text>
+        )}
+      </ScrollView>
     </>
   );
 }
 
-function EmployeeDetail({
-  employee,
-  onEdit,
-  onBack,
-  onDelete,
-}: {
-  employee: Employee;
-  onEdit: () => void;
-  onBack: () => void;
-  onDelete: () => void;
+function EmployeeDetail({ employee, busy, onEdit, onBack, onDelete }: {
+  employee: Employee; busy: boolean; onEdit: () => void; onBack: () => void; onDelete: () => void;
 }) {
-
   return (
     <>
-      <AdminBar />
-      <Header title="Ficha do Funcionario" onBack={onBack} />
-      <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
-        <View style={styles.profileCard}>
+      <ScreenHeader title="Ficha do Funcionário" onBack={onBack} />
+      <ScrollView contentContainerStyle={styles.detailContent}>
+        <View style={styles.sectionCard}>
           <View style={styles.profileHead}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>{initials(employee.nome)}</Text>
+            <View style={[styles.avatar, styles.avatarLarge]}>
+              <Text style={[styles.avatarText, styles.avatarTextLarge]}>{initials(employee.nome)}</Text>
             </View>
-            <View style={styles.profileTitleWrap}>
-              <View style={styles.profileNameRow}>
-                <Text style={styles.profileName}>{employee.nome}</Text>
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>Não informado</Text>
-                </View>
-              </View>
-              <Text style={styles.profileRole}>{employee.descricao}</Text>
+            <View style={styles.flex}>
+              <Text style={styles.profileName}>{employee.nome}</Text>
+              {!!employee.descricao && <Text style={styles.role}>{employee.descricao}</Text>}
             </View>
           </View>
           <View style={styles.divider} />
-          <View style={styles.infoList}>
-            <InfoRow label="E-MAIL FUNCIONAL" value={employee.email} />
-            <InfoRow label="TELEFONE" value={employee.telefone} />
-          </View>
+          <InfoRow label="E-MAIL FUNCIONAL" value={employee.email} />
+          <InfoRow label="TELEFONE" value={employee.telefone} />
+          <InfoRow label="CPF" value={employeeCpf(employee) || "Não informado"} />
         </View>
       </ScrollView>
-      <View style={styles.detailActions}>
-        <Pressable onPress={onEdit} style={styles.editButton}>
-          <Text style={styles.editButtonText}>Editar Ficha</Text>
-        </Pressable>
-        <Pressable onPress={onDelete} style={styles.deleteOutlineButton}>
-          <Text style={styles.deleteOutlineText}>Excluir</Text>
-        </Pressable>
-      </View>
+      <ScreenFooter>
+        <Button title="Editar Ficha" onPress={onEdit} disabled={busy} style={styles.flex} />
+        <Button title="Excluir" variant="outlineDanger" onPress={onDelete} disabled={busy} style={styles.flex} />
+      </ScreenFooter>
     </>
   );
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View>
+    <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
     </View>
@@ -305,10 +263,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function EmployeeForm({ onBack, onSave, employee, busy }: {
-  onBack: () => void;
-  onSave: (values: EmployeeFormValues) => void;
-  employee: Employee | null;
-  busy: boolean;
+  onBack: () => void; onSave: (values: EmployeeFormValues) => void; employee: Employee | null; busy: boolean;
 }) {
   const [values, setValues] = useState<EmployeeFormValues>({
     nome: employee?.nome ?? "", cpf: employee ? employeeCpf(employee) : "",
@@ -316,602 +271,101 @@ function EmployeeForm({ onBack, onSave, employee, busy }: {
     descricao: employee?.descricao ?? "", senha: "", confirmarSenha: "",
   });
   function field(key: keyof EmployeeFormValues): TextInputProps {
-    return { value: values[key], editable: !busy, onChangeText: value => setValues(current => ({ ...current, [key]: value })) };
+    return { value: values[key], editable: !busy, onChangeText: (value) => setValues((current) => ({ ...current, [key]: value })) };
   }
   return (
-    <>
-      <AdminBar />
-      <Header title={employee ? "Editar Funcionario" : "Novo Funcionario"} onBack={onBack} close />
-      <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
-        <FormInput label="Nome Completo" required placeholder="Ex: Camila Soares Santos" focused {...field("nome")} maxLength={150} />
-        <FormInput label="CPF" required placeholder="Ex: 000.000.000-00" {...field("cpf")} keyboardType="numeric" maxLength={14} />
-        <FormInput label="E-mail Funcional" required placeholder="Ex: camila.soares@clinica.com.br" {...field("email")} autoCapitalize="none" keyboardType="email-address" maxLength={255} />
-        <FormInput label="Telefone" required placeholder="Ex: (11) 98888-7777" {...field("telefone")} keyboardType="phone-pad" maxLength={20} />
-        <FormInput label="Descrição" required placeholder="Digite a descrição" {...field("descricao")} maxLength={255} />
-        <View style={styles.passwordRow}>
-          <FormInput label="Senha" required={!employee} {...field("senha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
-          <FormInput label="Confirmar" required={!employee} {...field("confirmarSenha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" password />
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScreenHeader title={employee ? "Editar Funcionário" : "Novo Funcionário"} onBack={onBack} />
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.formContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        <FormInput label="Nome completo" required placeholder="Ex.: Camila Soares Santos" {...field("nome")} maxLength={150} />
+        <FormInput label="CPF" required placeholder="000.000.000-00" {...field("cpf")} keyboardType="numeric" maxLength={14} />
+        <FormInput label="E-mail funcional" required placeholder="camila@clinica.com.br" {...field("email")} autoCapitalize="none" keyboardType="email-address" maxLength={255} />
+        <FormInput label="Telefone" required placeholder="(11) 98888-7777" {...field("telefone")} keyboardType="phone-pad" maxLength={20} />
+        <FormInput label="Descrição" required placeholder="Ex.: Esteticista" {...field("descricao")} maxLength={255} />
+        <View style={styles.field}>
+          <Text style={styles.label}>Senha {!employee && <Text style={styles.required}>*</Text>}</Text>
+          <PasswordInput {...field("senha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Confirmar senha {!employee && <Text style={styles.required}>*</Text>}</Text>
+          <PasswordInput {...field("confirmarSenha")} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="••••••••" />
+          <Text style={styles.hint}>
+            {employee ? "Deixe em branco para manter a senha atual. " : ""}8 a 20 caracteres, com maiúscula, minúscula, número e símbolo.
+          </Text>
         </View>
       </ScrollView>
-      <View style={styles.ctaWrap}>
-        <Pressable disabled={busy} onPress={() => onSave(values)} style={styles.ctaButton}>
-          <Text style={styles.ctaButtonText}>{busy ? "Salvando..." : employee ? "Salvar Funcionario" : "Cadastrar Funcionario"}</Text>
-        </Pressable>
-      </View>
-    </>
+      <ScreenFooter>
+        <Button
+          title={employee ? "Salvar Funcionário" : "Cadastrar Funcionário"}
+          onPress={() => onSave(values)}
+          loading={busy}
+          style={styles.flex}
+        />
+      </ScreenFooter>
+    </KeyboardAvoidingView>
   );
 }
 
-function FormInput({
-  label,
-  placeholder,
-  required,
-  focused,
-  password,
-  ...inputProps
-}: TextInputProps & {
-  label: string;
-  placeholder: string;
-  required?: boolean;
-  focused?: boolean;
-  password?: boolean;
-}) {
+function FormInput({ label, required, ...inputProps }: TextInputProps & { label: string; required?: boolean }) {
   return (
-    <View style={styles.fieldGroup}>
-      <Text style={styles.label}>
-        {label} {required && <Text style={styles.required}>*</Text>}
-      </Text>
-      <TextInput
-        {...inputProps}
-        placeholder={placeholder}
-        placeholderTextColor={password ? palette.muted : palette.placeholder}
-        secureTextEntry={password}
-        style={[styles.input, focused && styles.inputFocused, password && styles.passwordInput]}
-      />
+    <View style={styles.field}>
+      <Text style={styles.label}>{label} {required && <Text style={styles.required}>*</Text>}</Text>
+      <TextInput {...inputProps} placeholderTextColor={colors.textLight} style={styles.input} />
     </View>
   );
 }
-
-function DeleteSheet({
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <View style={styles.sheetScreen}>
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.deleteIcon}>
-          <Text style={styles.deleteX}>x</Text>
-        </View>
-        <Text style={styles.sheetTitle}>Confirmar exclusao</Text>
-        <Text style={styles.sheetBody}>Tem certeza que deseja excluir este funcionario?</Text>
-        <Text style={styles.sheetNote}>Esta acao nao pode ser desfeita.</Text>
-        <View style={styles.sheetActions}>
-          <Pressable disabled={busy} onPress={onCancel} style={styles.cancelButton}>
-            <Text style={styles.cancelText}>Cancelar</Text>
-          </Pressable>
-          <Pressable disabled={busy} onPress={onConfirm} style={styles.deleteButton}>
-            <Text style={styles.deleteText}>{busy ? "Excluindo..." : "Excluir"}</Text>
-          </Pressable>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-const palette = {
-  background: "#f0eef6",
-  adminBg: "#ede9f8",
-  adminBorder: "#d8d0f0",
-  title: "#3b2a6e",
-  primary: "#5b3fa6",
-  button: "#7c3fbf",
-  text: "#1c1c1e",
-  label: "#3a3a3a",
-  gold: "#c9a227",
-  border: "#e8e4f0",
-  placeholder: "#c0bcc8",
-  muted: "#b0aab8",
-  softText: "#888888",
-  faint: "#aaaaaa",
-  avatar: "#e8e2f5",
-  danger: "#d94040",
-};
-
-const fontFamily = Platform.select({
-  web: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
-  default: undefined,
-});
 
 const styles = StyleSheet.create({
-  routeBackground: {
-    flex: 1,
-    alignItems: "center",
-    backgroundColor: palette.background,
-  },
-  screen: {
-    flex: 1,
-    width: "100%",
-    maxWidth: 430,
-    backgroundColor: palette.background,
-  },
-  dimScreen: {
-    backgroundColor: "#808080",
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  pressed: { opacity: 0.85 },
+
   adminBar: {
-    backgroundColor: palette.adminBg,
-    borderBottomWidth: 1,
-    borderBottomColor: palette.adminBorder,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    flexDirection: "row", alignItems: "center", gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.md,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.sm, backgroundColor: colors.primaryLight,
   },
-  adminShield: {
-    width: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
+  adminText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, color: colors.primary },
+  addButton: { width: 44, height: 44, borderRadius: radius.circle, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  searchWrap: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  listContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  loader: { marginTop: spacing.xl },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.dangerLight, borderRadius: radius.sm, padding: spacing.md },
+  errorText: { ...typography.label, color: colors.danger, flex: 1 },
+  card: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: colors.white,
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.lg,
   },
-  adminText: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "700",
-    color: palette.primary,
-    letterSpacing: 0.8,
-  },
-  header: {
-    paddingTop: 20,
-    paddingBottom: 8,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  backIcon: {
-    fontFamily,
-    fontSize: 27,
-    lineHeight: 30,
-    color: palette.primary,
-    fontWeight: "500",
-  },
-  title: {
-    fontFamily,
-    margin: 0,
-    fontSize: 26,
-    fontWeight: "700",
-    color: palette.title,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: palette.button,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addButtonText: {
-    fontFamily,
-    color: "#ffffff",
-    fontSize: 26,
-    lineHeight: 28,
-    fontWeight: "300",
-  },
-  searchWrap: {
-    paddingTop: 8,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  searchBox: {
-    backgroundColor: "#ffffff",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  searchText: {
-    fontFamily,
-    color: palette.muted,
-    fontSize: 15,
-  },
-  employeeList: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  employeeCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: palette.avatar,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    fontFamily,
-    fontSize: 14,
-    fontWeight: "600",
-    color: palette.primary,
-  },
-  employeeInfo: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 2,
-  },
-  employeeName: {
-    fontFamily,
-    fontSize: 15,
-    fontWeight: "700",
-    color: palette.text,
-  },
-  statusBadge: {
-    backgroundColor: "#e6f7ed",
-    borderRadius: 20,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-  },
-  statusBadgeAway: {
-    backgroundColor: "#f2eddf",
-  },
-  statusText: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#2d9a4e",
-  },
-  statusTextAway: {
-    color: "#7a6a44",
-  },
-  employeeRole: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "500",
-    color: palette.gold,
-    marginBottom: 2,
-  },
-  employeeEmail: {
-    fontFamily,
-    fontSize: 12,
-    color: palette.softText,
-  },
-  chevron: {
-    fontFamily,
-    color: "#cccccc",
-    fontSize: 18,
-  },
-  countWrap: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: "center",
-  },
-  countText: {
-    fontFamily,
-    fontSize: 13,
-    color: palette.faint,
-  },
-  detailScroll: {
-    flex: 1,
-  },
-  detailContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  profileCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  profileHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    marginBottom: 16,
-  },
-  profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: palette.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileAvatarText: {
-    fontFamily,
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
-  profileTitleWrap: {
-    flex: 1,
-  },
-  profileNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 5,
-  },
-  profileName: {
-    fontFamily,
-    fontSize: 20,
-    fontWeight: "800",
-    color: palette.title,
-  },
-  profileRole: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.gold,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#ece8f3",
-    marginBottom: 14,
-  },
-  infoList: {
-    gap: 12,
-  },
-  infoLabel: {
-    fontFamily,
-    fontSize: 11,
-    fontWeight: "700",
-    color: palette.faint,
-    letterSpacing: 0.6,
-    marginBottom: 2,
-  },
-  infoValue: {
-    fontFamily,
-    fontSize: 15,
-    color: palette.text,
-  },
-  detailActions: {
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
-    backgroundColor: palette.background,
-  },
-  editButton: {
-    flex: 1,
-    backgroundColor: palette.button,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-  },
-  editButtonText: {
-    fontFamily,
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  deleteOutlineButton: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-    borderColor: palette.danger,
-    borderWidth: 2,
-    borderRadius: 16,
-    padding: 14,
-    alignItems: "center",
-  },
-  deleteOutlineText: {
-    fontFamily,
-    color: palette.danger,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  formHeader: {
-    paddingTop: 20,
-    paddingBottom: 12,
-    paddingHorizontal: 20,
-  },
-  formHeaderTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  closeIcon: {
-    fontFamily,
-    fontSize: 18,
-    color: palette.title,
-    fontWeight: "500",
-  },
-  formTitle: {
-    fontFamily,
-    fontSize: 24,
-    fontWeight: "800",
-    color: palette.title,
-  },
-  formScroll: {
-    flex: 1,
-  },
-  formContent: {
-    paddingTop: 8,
-    paddingHorizontal: 20,
-  },
-  fieldGroup: {
-    marginBottom: 14,
-  },
-  label: {
-    fontFamily,
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.label,
-    marginBottom: 6,
-  },
-  required: {
-    color: "#e03e3e",
-  },
+  avatar: { width: 44, height: 44, borderRadius: radius.circle, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontSize: 16, fontWeight: "700", color: colors.primary },
+  avatarLarge: { width: 64, height: 64 },
+  avatarTextLarge: { fontSize: 22 },
+  name: { ...typography.subtitle, color: colors.text },
+  role: { ...typography.label, color: colors.primary, fontWeight: "600", marginTop: 2 },
+  muted: { ...typography.label, color: colors.textMuted, marginTop: 2 },
+  counter: { ...typography.small, color: colors.textLight, textAlign: "center", marginTop: spacing.sm },
+
+  detailContent: { padding: spacing.lg, paddingTop: 0 },
+  sectionCard: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.cardBorder, padding: spacing.lg },
+  profileHead: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  profileName: { ...typography.subtitle, color: colors.text },
+  divider: { height: 1, backgroundColor: colors.borderLight, marginVertical: spacing.md },
+  infoRow: { marginBottom: spacing.md },
+  infoLabel: { fontSize: 11, letterSpacing: 0.5, fontWeight: "700", color: colors.textLight },
+  infoValue: { ...typography.body, color: colors.text, marginTop: 2 },
+
+  formContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
+  field: { gap: spacing.sm - 2 },
+  label: { ...typography.label, color: colors.text },
+  required: { color: colors.danger },
+  hint: { ...typography.small, color: colors.textMuted },
   input: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1.5,
-    borderColor: palette.border,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    fontFamily,
-    fontSize: 15,
-    color: palette.text,
-  },
-  inputFocused: {
-    borderWidth: 2,
-    borderColor: palette.gold,
-  },
-  passwordInput: {
-    fontSize: 18,
-    letterSpacing: 3,
-  },
-  passwordRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
-  ctaWrap: {
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    backgroundColor: palette.background,
-  },
-  ctaButton: {
-    width: "100%",
-    padding: 18,
-    backgroundColor: palette.button,
-    borderRadius: 18,
-    alignItems: "center",
-  },
-  ctaButtonText: {
-    fontFamily,
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#ffffff",
-    letterSpacing: 0.2,
-  },
-  sheetScreen: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 10,
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-    alignItems: "center",
-  },
-  handle: {
-    width: 40,
-    height: 5,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 3,
-    marginBottom: 16,
-  },
-  deleteIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#fde8e8",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  deleteX: {
-    fontFamily,
-    fontSize: 35,
-    lineHeight: 36,
-    color: palette.danger,
-    fontWeight: "300",
-  },
-  sheetTitle: {
-    fontFamily,
-    marginBottom: 10,
-    fontSize: 20,
-    fontWeight: "700",
-    color: palette.text,
-    textAlign: "center",
-  },
-  sheetBody: {
-    fontFamily,
-    marginBottom: 4,
-    fontSize: 15,
-    color: "#555555",
-    textAlign: "center",
-    lineHeight: 22.5,
-  },
-  sheetNote: {
-    fontFamily,
-    marginBottom: 20,
-    fontSize: 13,
-    color: palette.faint,
-    textAlign: "center",
-  },
-  sheetActions: {
-    width: "100%",
-    flexDirection: "row",
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: palette.background,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  cancelText: {
-    fontFamily,
-    fontSize: 16,
-    fontWeight: "600",
-    color: palette.title,
-  },
-  deleteButton: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: palette.danger,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  deleteText: {
-    fontFamily,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#ffffff",
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md, ...typography.body, color: colors.text, backgroundColor: colors.white,
   },
 });
