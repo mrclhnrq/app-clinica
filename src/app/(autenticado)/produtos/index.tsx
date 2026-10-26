@@ -1,4 +1,4 @@
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ItemCard } from "@/components/ItemCard";
 import { ListagemCadastro } from "@/components/ListagemCadastro";
@@ -8,12 +8,15 @@ import { colors, typography } from "@/constants/theme";
 import { useProdutos } from "@/context/ProdutosContext";
 import { nivelEstoque } from "@/utils/estoque";
 import { formatCurrency } from "@/utils/format";
+import { Button } from "@/components/Button";
 
 export default function ProdutosListagem() {
   const { produtos, carregando, erro, recarregar } = useProdutos();
 
   return (
-    <ListagemCadastro
+    <View style={styles.container}>
+      <Button title="Importar nota fiscal" variant="secondary" onPress={() => router.push("/notas/captura")} style={styles.importar} />
+      <ListagemCadastro
       titulo="Produtos"
       placeholderBusca="Buscar produtos..."
       rotuloPlural="produtos"
@@ -35,17 +38,20 @@ export default function ProdutosListagem() {
             dimmed={!p.ativo}
             details={[
               { label: "Custo:", value: formatCurrency(p.valorCusto) },
-              { label: "Venda:", value: formatCurrency(p.valorVenda), highlight: true },
+              { label: "Venda:", value: p.valorVenda === null ? "Cadastro incompleto" : formatCurrency(p.valorVenda), highlight: true },
             ]}
             onPress={() => router.push(`/produtos/${p.id}`)}
           />
         );
       }}
-    />
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1 },
+  importar: { marginHorizontal: 16 },
   quantidade: { ...typography.small, fontWeight: "700", color: colors.text },
   alerta: { color: colors.danger },
 });

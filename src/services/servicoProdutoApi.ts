@@ -6,7 +6,7 @@ export type ServicoProdutoDto = {
   isProduto?: boolean;
   nome?: string;
   despesa?: number;
-  valorVenda?: number;
+  valorVenda?: number | null;
   descricao?: string | null;
   marca?: string | null;
   categoria?: string | null;

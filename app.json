@@ -36,8 +36,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Permita o acesso às suas fotos para escolher a foto de perfil.",
-          "cameraPermission": false,
+          "photosPermission": "Permita que o $(PRODUCT_NAME) acesse suas fotos para escolher a foto de perfil e selecionar imagens de notas fiscais.",
+          "cameraPermission": "Permita que o $(PRODUCT_NAME) acesse a câmera para fotografar notas fiscais.",
           "microphonePermission": false
         }
       ]
