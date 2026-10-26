@@ -22,7 +22,7 @@ export default function ProdutoFicha() {
         { label: "Categoria", value: produto.categoria },
         { label: "Qtd. em estoque", value: formatUnidades(produto.estoque) },
         { label: "Valor de custo", value: formatCurrency(produto.valorCusto) },
-        { label: "Valor de venda", value: formatCurrency(produto.valorVenda) },
+        { label: "Valor de venda", value: produto.valorVenda === null ? "Cadastro incompleto" : formatCurrency(produto.valorVenda) },
         { label: "Descrição", value: produto.descricao || "—" },
       ]}
       onEditar={() => router.push(`/produtos/editar/${produto.id}`)}

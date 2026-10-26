@@ -7,6 +7,11 @@ export function setAuthToken(token: string | null) {
   authToken = token;
 }
 
+// token da sessão atual, para serviços que ainda usam fetch (ordens, funcionários)
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler;
 }

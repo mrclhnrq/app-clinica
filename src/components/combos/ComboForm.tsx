@@ -10,6 +10,7 @@ import { useProdutos } from "@/context/ProdutosContext";
 import { useServicos } from "@/context/ServicosContext";
 import { useFormState } from "@/hooks/useFormState";
 import { Combo, ComboInput, ItemCombo } from "@/types/combo";
+import type { Produto } from "@/types/produto";
 import { aplicarDesconto, aplicarSelecao, calcularTotal, rotuloItem } from "@/utils/combo";
 import { formatCurrency, parseCurrency, toMoneyText } from "@/utils/format";
 
@@ -30,6 +31,10 @@ const paraItemCombo = (item: { id: string; nome: string; valorVenda: number }): 
   valorVenda: item.valorVenda,
   ativo: true,
 });
+
+function produtoComPreco(produto: Produto): produto is Produto & { valorVenda: number } {
+  return produto.ativo && produto.valorVenda !== null;
+}
 
 export function ComboForm({ initialValue, submitLabel, onSubmit, onCancel }: ComboFormProps) {
   const { showToast } = useToast();
@@ -55,7 +60,7 @@ export function ComboForm({ initialValue, submitLabel, onSubmit, onCancel }: Com
   const disponiveis = useMemo(
     () => ({
       servicos: servicos.filter((s) => s.ativo).map(paraItemCombo),
-      produtos: produtos.filter((p) => p.ativo).map(paraItemCombo),
+       produtos: produtos.filter(produtoComPreco).map(paraItemCombo),
     }),
     [servicos, produtos]
   );

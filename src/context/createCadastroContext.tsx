@@ -22,6 +22,37 @@ export type CadastroContextValue<T, TInput> = {
   reativar: (id: string) => Promise<void>;
 };
 
+export function criarRecargaOrdenada<T>(listar: () => Promise<T[]>, iniciar: () => void,
+  publicar: (itens: T[]) => void, falhar: (erro: unknown) => void, terminar: () => void) {
+  let versao = 0;
+  let ultima: Promise<void> | null = null;
+  return function recarregar(): Promise<void> {
+    const atual = ++versao;
+    iniciar();
+    const pedido = (async () => {
+      try {
+        const itens = await listar();
+        if (atual !== versao) {
+          if (ultima === null) throw new Error("Recarga mais recente indisponível.");
+          return await ultima;
+        }
+        publicar(itens);
+      } catch (erro) {
+        if (atual !== versao) {
+          if (ultima === null) throw new Error("Recarga mais recente indisponível.");
+          return await ultima;
+        }
+        falhar(erro);
+        throw erro;
+      } finally {
+        if (atual === versao) terminar();
+      }
+    })();
+    ultima = pedido;
+    return pedido;
+  };
+}
+
 export function createCadastroContext<T extends { id: string; ativo: boolean }, TInput>(
   recurso: CadastroApi<T, TInput>,
   nome: string
@@ -34,20 +65,12 @@ export function createCadastroContext<T extends { id: string; ativo: boolean }, 
     const [carregando, setCarregando] = useState(true);
     const [erro, setErro] = useState<string | null>(null);
 
-    const recarregar = useCallback(async () => {
-      setCarregando(true);
-      setErro(null);
-      try {
-        setItens(await recurso.listar());
-      } catch (e) {
-        setErro(getErrorMessage(e));
-      } finally {
-        setCarregando(false);
-      }
-    }, []);
+    const recarregar = useMemo(() => criarRecargaOrdenada(recurso.listar,
+      () => { setCarregando(true); setErro(null); }, setItens,
+      (erro) => setErro(getErrorMessage(erro)), () => setCarregando(false)), []);
 
     useEffect(() => {
-      recarregar();
+      void recarregar().catch((e: unknown) => setErro(getErrorMessage(e)));
     }, [recarregar]);
 
     const getItem = useCallback((id: string) => itens.find((i) => i.id === id), [itens]);

@@ -13,6 +13,9 @@ function component(file, name, props) {
   let cursor = 0;
   const api = { exports: {}, process: { env: {} } };
   vm.runInNewContext(compile(readFileSync(path.join(__dirname, "../src/services/ordens.ts"), "utf8")), api);
+  // as telas usam as cores do tema do app (src/constants/theme.ts)
+  const theme = { exports: {} };
+  vm.runInNewContext(compile(readFileSync(path.join(__dirname, "../src/constants/theme.ts"), "utf8")), theme);
   const context = { exports: {}, require: module => {
     if (module === "react/jsx-runtime") return require(module);
     if (module === "react") return {
@@ -27,6 +30,7 @@ function component(file, name, props) {
       Modal: "Modal", Pressable: "Pressable", ScrollView: "ScrollView", View: "View", Text: "Text", TextInput: "TextInput", KeyboardAvoidingView: "KeyboardAvoidingView",
     };
     if (module.endsWith("/services/ordens")) return api.exports;
+    if (module.endsWith("/constants/theme")) return theme.exports;
     return {};
   } };
   vm.runInNewContext(compile(readFileSync(path.join(__dirname, "../", file), "utf8") + `\nexport { ${name} };`), context);

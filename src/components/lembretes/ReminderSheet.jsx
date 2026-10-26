@@ -12,9 +12,8 @@ import {
   Text,
   TextInput,
   View,
-  Alert,
 } from "react-native";
-import { colors, radius, spacing } from "../../constants/theme";
+import { colors, radius, spacing, typography } from "../../constants/theme";
 import { generateReminderMessage, sendReminder } from "@/services/lembretesApi";
 import { reminderColors } from "./lembretesTheme";
 import { SentBadge } from "./ReminderClientRow";
@@ -33,6 +32,7 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
 
   const generate = useCallback(async () => {
     if (!reminder) return;
@@ -59,14 +59,15 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
   const handleSend = async () => {
     const text = message.trim();
     if (!text) {
-      Alert.alert("Mensagem vazia", "Escreva ou gere uma mensagem antes de enviar.");
+      setSendError("Escreva ou gere uma mensagem antes de enviar.");
       return;
     }
+    setSendError("");
     setSending(true);
     try {
       const response = await sendReminder(reminder.backendId, text);
       if (response?.status === "FALHA" || !response?.whatsappUrl) {
-        Alert.alert("Não foi possível abrir o WhatsApp", response?.erroProvedor || "Verifique o telefone do cliente.");
+        setSendError(response?.erroProvedor || "Não foi possível abrir o WhatsApp. Verifique o telefone do cliente.");
         return;
       }
       await Linking.openURL(response.whatsappUrl);
@@ -74,7 +75,7 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
       onClose();
     } catch (error) {
       console.error("Falha ao enviar lembrete", error);
-      Alert.alert("Não foi possível enviar", error.message || "Tente novamente.");
+      setSendError(error.message || "Não foi possível enviar. Tente novamente.");
     } finally {
       setSending(false);
     }
@@ -159,6 +160,7 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
               <Ionicons name="logo-whatsapp" size={18} color={colors.white} />
               <Text style={styles.sendText}>{sending ? "Abrindo WhatsApp..." : "Enviar mensagem"}</Text>
             </Pressable>
+            {!!sendError && <Text style={styles.generationError}>{sendError}</Text>}
             {!reminder.hasPhone && (
               <Text style={styles.generationError}>Cliente sem telefone cadastrado. Atualize o cadastro para enviar pelo WhatsApp.</Text>
             )}
@@ -174,18 +176,18 @@ export function ReminderSheet({ visible, kind, reminder, onClose, onSent }) {
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(24, 12, 30, 0.48)" },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.4)" },
   sheet: {
     maxHeight: "92%",
     backgroundColor: colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
-  handle: { alignSelf: "center", width: 42, height: 4, borderRadius: 4, backgroundColor: "#D4C5D9", marginTop: spacing.sm },
+  handle: { alignSelf: "center", width: 42, height: 4, borderRadius: 4, backgroundColor: colors.border, marginTop: spacing.sm },
   body: { padding: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
   header: { flexDirection: "row", alignItems: "flex-start", marginBottom: spacing.lg },
   headerCopy: { flex: 1 },
-  title: { color: colors.primary, fontSize: 21, fontWeight: "700" },
+  title: { ...typography.subtitle, fontSize: 20, color: colors.primary },
   subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 5 },
   close: { padding: 4, marginLeft: spacing.sm },
   infoCard: { backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.lg },
