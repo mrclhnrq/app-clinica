@@ -75,14 +75,16 @@ export function getErrorMessage(
   const { status, data } = error.response;
   if (porStatus[status]) return porStatus[status]!;
 
+  // Não exibir detalhes internos de autenticação ou exceções do servidor.
+  if (status === 401) return "Sessão expirada. Faça login novamente.";
+  if (status === 403) return "Você não tem permissão para esta ação.";
+  if (status >= 500) return "Erro no servidor. Tente novamente em instantes.";
+
   const mensagemApi = extrairMensagem(data);
   if (mensagemApi.trim()) return mensagemApi;
 
-  if (status === 401) return "Sessão expirada. Faça login novamente.";
-  if (status === 403) return "Você não tem permissão para esta ação.";
   if (status === 404) return "Registro não encontrado.";
   if (status === 400) return "Dados inválidos. Confira os campos.";
-  if (status >= 500) return "Erro no servidor. Tente novamente em instantes.";
   return "Não foi possível concluir a operação.";
 }
 

@@ -1,9 +1,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
-import { getAuthToken, setAuthToken, setUnauthorizedHandler } from "@/services/api";
+import { setAuthToken, setUnauthorizedHandler } from "@/services/api";
 import * as authService from "@/services/authService";
-import { setEmployeesTokenProvider } from "@/services/funcionarios";
-import { setOrdersTokenProvider } from "@/services/ordens";
 import * as usuarioService from "@/services/usuarioService";
 
 type UsuarioLogado = {
@@ -24,9 +22,7 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ordens e funcionários usam fetch próprio: passam a ler o mesmo token do login
-setOrdersTokenProvider(getAuthToken);
-setEmployeesTokenProvider(getAuthToken);
+// Os clientes HTTP compartilham o token definido por setAuthToken.
 const TOKEN_STORAGE_KEY = "token";
 const USER_STORAGE_KEY = "auth_user";
 
