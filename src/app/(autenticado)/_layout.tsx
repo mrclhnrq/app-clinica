@@ -56,21 +56,21 @@ export default function AutenticadoLayout() {
                 }}
               />
               {/* dashboard e custos: acessados pelo menu da Home, sem aba própria */}
-              <Tabs.Screen name="dashboard" options={{ href: null }} />
-              <Tabs.Screen name="custos" options={{ href: null }} />
+              <Tabs.Screen name="dashboard" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
+              <Tabs.Screen name="custos" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
               {/* pasta de serviços: rota existe, mas não vira uma aba */}
-              <Tabs.Screen name="servicos" options={{ href: null }} />
+              <Tabs.Screen name="servicos" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
               {/* pasta de produtos: rota existe, mas não vira uma aba */}
-              <Tabs.Screen name="produtos" options={{ href: null }} />
+              <Tabs.Screen name="produtos" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
               {/* pasta de combos: rota existe, mas não vira uma aba */}
-              <Tabs.Screen name="combos" options={{ href: null }} />
-              <Tabs.Screen name="funcionarios" options={{ href: null }} />
+              <Tabs.Screen name="combos" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
+              <Tabs.Screen name="funcionarios" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
               {/* jornada de mensagens/lembretes: rotas existem, mas não viram abas */}
-              <Tabs.Screen name="lembretes" options={{ href: null }} />
-              <Tabs.Screen name="lembrete-horario" options={{ href: null }} />
-              <Tabs.Screen name="lembrete-retorno" options={{ href: null }} />
+              <Tabs.Screen name="lembretes" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
+              <Tabs.Screen name="lembrete-horario" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
+              <Tabs.Screen name="lembrete-retorno" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
               {/* importação de nota fiscal: rotas existem, mas não viram abas */}
-              <Tabs.Screen name="notas" options={{ href: null }} />
+              <Tabs.Screen name="notas" options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }} />
             </Tabs>
           </ClientesProvider>
         </CombosProvider>

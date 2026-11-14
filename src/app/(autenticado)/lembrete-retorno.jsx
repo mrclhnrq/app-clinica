@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SearchInput } from "@/components/SearchInput";
 import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow";
@@ -30,9 +31,7 @@ export default function LembreteRetorno() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(load);
 
   const filtered = useMemo(() => reminders.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())), [reminders, search]);
 
@@ -42,6 +41,8 @@ export default function LembreteRetorno() {
       <SearchInput containerStyle={styles.search} value={search} onChangeText={setSearch} placeholder="Buscar cliente..." />
       <FlatList
         data={filtered}
+        refreshing={loading}
+        onRefresh={load}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <ReminderClientRow reminder={item} kind="retorno" onPress={() => setSelected(item)} />}
         contentContainerStyle={styles.list}

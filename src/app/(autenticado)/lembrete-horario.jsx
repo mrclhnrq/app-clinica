@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SearchInput } from "@/components/SearchInput";
 import { ReminderClientRow } from "../../components/lembretes/ReminderClientRow";
@@ -34,9 +35,7 @@ export default function LembreteHorario() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(load);
 
   const filtered = useMemo(() => reminders.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase());
@@ -60,6 +59,8 @@ export default function LembreteHorario() {
       <View style={styles.filters}><FilterChips options={filters} value={filter} onChange={setFilter} /></View>
       <FlatList
         data={filtered}
+        refreshing={loading}
+        onRefresh={load}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <ReminderClientRow reminder={item} kind="horario" onPress={() => setSelected(item)} />}
         contentContainerStyle={styles.list}

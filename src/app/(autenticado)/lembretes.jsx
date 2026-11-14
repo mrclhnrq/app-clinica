@@ -1,10 +1,9 @@
-import { router } from "expo-router";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { ReminderCategoryCard } from "../../components/lembretes/ReminderCategoryCard";
 import { ReminderHeader } from "../../components/lembretes/ReminderHeader";
 import { colors, spacing } from "../../constants/theme";
-import { useEffect, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { useCallback, useState } from "react";
 import { listReminders } from "@/services/lembretesApi";
 import { mapReminder } from "../../data/reminderMapper";
 
@@ -12,9 +11,12 @@ export default function Lembretes() {
   const [counts, setCounts] = useState({ horario: 0, retorno: 0 });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    setLoading(true);
     listReminders()
       .then((response) => {
+        if (!active) return;
         const reminders = (response?.content || []).map(mapReminder).filter((item) => item.status !== "CANCELADO");
         setCounts({
           horario: reminders.filter((item) => item.kind === "horario").length,
@@ -22,8 +24,9 @@ export default function Lembretes() {
         });
       })
       .catch((error) => console.error("Falha ao carregar resumo de lembretes", error))
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []));
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
