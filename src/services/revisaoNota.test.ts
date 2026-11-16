@@ -1,5 +1,5 @@
 import { expect, test } from "@jest/globals";
-import { custoEmCentavos, exigeCienciaExplicita, prepararRevisao, quantidadeInteira, type Escolha } from "./revisaoNota";
+import { custoEmCentavos, exigeCienciaExplicita, prepararRevisao, quantidadeInteira, rascunhoInicial, type Escolha } from "./revisaoNota";
 import type { Item } from "@/types/notaFiscal";
 
 const itens: Item[] = [
@@ -63,4 +63,34 @@ test("criação ou rejeição total exigem ciência explícita, associação com
   expect(exigeCienciaExplicita(prepararRevisao(itens, { 1: { acao: "REJEITAR" }, 2: { acao: "REJEITAR" } }, []))).toBe(true);
   expect(exigeCienciaExplicita(prepararRevisao([itens[0]], { 1: { acao: "CRIAR_NOVO", nomeNovo: "Novo", quantidade: "1", valorUnitario: "1,00" } }, []))).toBe(true);
   expect(exigeCienciaExplicita(prepararRevisao([itens[0]], { 1: { acao: "ASSOCIAR", produtoId: 7, quantidade: "1", valorUnitario: "1,00" } }, produtos))).toBe(false);
+});
+
+const valido = (extra: Partial<Item>): Item => ({ itemId: 5, status: "VALIDO", motivoRejeicao: null, textoOriginal: "  Creme Facial 50g ", quantidade: 2, valorUnitario: 12.3, valorTotal: 24.6, produtoSugerido: null, confianca: null, ...extra }) as Item;
+
+test("rascunho inicial associa o produto sugerido e traz quantidade e custo da nota", () => {
+  const item = valido({ produtoSugerido: { id: 7, nome: "Meu produto" }, confianca: "ALTA" });
+  expect(rascunhoInicial(item, produtos)).toEqual({ acao: "ASSOCIAR", produtoId: 7, nomeNovo: "", quantidade: "2", valorUnitario: "12,30" });
+});
+
+test("rascunho inicial sem sugestao cadastra novo com o texto da nota", () => {
+  expect(rascunhoInicial(valido({}), produtos)).toEqual({ acao: "CRIAR_NOVO", produtoId: null, nomeNovo: "Creme Facial 50g", quantidade: "2", valorUnitario: "12,30" });
+});
+
+test("rascunho inicial ignora sugestao fora do catalogo e item invalido vira rejeicao", () => {
+  expect(rascunhoInicial(valido({ produtoSugerido: { id: 999, nome: "X" } }), produtos).acao).toBe("CRIAR_NOVO");
+  expect(rascunhoInicial(itens[0], produtos).acao).toBe("REJEITAR");
+});
+
+test("quantidade fracionada nao e preenchida", () => {
+  expect(rascunhoInicial(valido({ quantidade: 1.5 }), produtos).quantidade).toBe("");
+});
+
+test("confianca media nao decide sozinha, mas ja traz quantidade e custo", () => {
+  const item = valido({ produtoSugerido: { id: 7, nome: "Meu produto" }, confianca: "MEDIA" });
+  expect(rascunhoInicial(item, produtos)).toEqual({ acao: "", produtoId: null, nomeNovo: "", quantidade: "2", valorUnitario: "12,30" });
+});
+
+test("rascunho sem decisao nao gera pedido de confirmacao", () => {
+  const item = valido({ produtoSugerido: { id: 7, nome: "Meu produto" }, confianca: "MEDIA" });
+  expect(() => prepararRevisao([item], {}, produtos)).toThrow("Escolha uma ação");
 });

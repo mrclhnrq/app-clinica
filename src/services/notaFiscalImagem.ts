@@ -1,8 +1,12 @@
+import { Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat, type ImageResult, type SaveOptions } from "expo-image-manipulator";
 import { File, Paths } from "expo-file-system";
 
-/** Cópia JPEG gerada no cache; `origemUri` é a foto original (nunca excluída) e é obrigatória para a limpeza segura. */
+/**
+ * Cópia JPEG gerada no cache (nativo); `origemUri` é a foto original (nunca excluída) e é obrigatória para a limpeza segura.
+ * No web não há cache de arquivos: `uri` e `origemUri` são o mesmo `blob:` criado pelo seletor e são liberados com `URL.revokeObjectURL`.
+ */
 export type ImagemNota = { uri: string; origemUri: string; name: "nota-fiscal.jpg"; type: "image/jpeg"; width: number; height: number };
 export type OrigemImagem = "camera" | "galeria";
 type ContextoImagem = {
@@ -15,6 +19,8 @@ export type DependenciasImagem = {
   abrirCamera: typeof ImagePicker.launchCameraAsync;
   abrirGaleria: typeof ImagePicker.launchImageLibraryAsync;
   manipular: (uri: string) => ContextoImagem;
+  /** Por padrão, `Platform.OS === "web"`. Injetável para testes. */
+  ehWeb?: boolean;
 };
 export type ArquivosTemporarios = { cacheUri: () => string; excluir: (uri: string) => void };
 const arquivosPadrao: ArquivosTemporarios = {
@@ -41,14 +47,21 @@ export class ErroImagemNota extends Error {
 }
 
 const URI_LOCAL = /^file:\/\/\/\S+$/i;
+const URI_BLOB = /^blob:\S+$/i;
+const URI_ORIGEM = /^(file:\/\/\/\S+|blob:\S+)$/i;
 const NOME_GERADO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/i;
 
 function imagemGerada(valor: unknown): valor is ImagemNota {
   if (valor === null || typeof valor !== "object") return false;
   const uri: unknown = Reflect.get(valor, "uri");
   const origemUri: unknown = Reflect.get(valor, "origemUri");
-  return typeof uri === "string" && typeof origemUri === "string" && URI_LOCAL.test(origemUri) &&
+  return typeof uri === "string" && typeof origemUri === "string" && URI_ORIGEM.test(origemUri) &&
     Reflect.get(valor, "name") === "nota-fiscal.jpg" && Reflect.get(valor, "type") === "image/jpeg";
+}
+
+/** Cópia web: o próprio blob selecionado, sem arquivo em disco. */
+function copiaWeb(valor: unknown): valor is ImagemNota {
+  return imagemGerada(valor) && URI_BLOB.test(valor.uri) && valor.origemUri === valor.uri;
 }
 
 function arquivoGeradoSeguro(imagem: unknown, cacheUri: string): imagem is ImagemNota {
@@ -65,6 +78,10 @@ function arquivoGeradoSeguro(imagem: unknown, cacheUri: string): imagem is Image
  */
 export function descartarImagemTemporaria(imagem: unknown, arquivos: ArquivosTemporarios = arquivosPadrao): void {
   try {
+    if (copiaWeb(imagem)) {
+      URL.revokeObjectURL(imagem.uri);
+      return;
+    }
     if (!arquivoGeradoSeguro(imagem, arquivos.cacheUri())) throw new ErroImagemNota("LIMPEZA", "CAMINHO");
     arquivos.excluir(imagem.uri);
   } catch (erro) {
@@ -81,6 +98,7 @@ async function permissao(origem: OrigemImagem, deps: DependenciasImagem): Promis
 export async function selecionarImagem(origem: OrigemImagem, deps: DependenciasImagem = padrao,
   arquivos: ArquivosTemporarios = arquivosPadrao): Promise<ImagemNota | null> {
   if (origem !== "camera" && origem !== "galeria") throw new ErroImagemNota("IMAGEM");
+  const web = deps.ehWeb ?? Platform.OS === "web";
   try {
     if (!await permissao(origem, deps)) throw new ErroImagemNota("PERMISSAO");
     const options: ImagePicker.ImagePickerOptions = {
@@ -91,9 +109,14 @@ export async function selecionarImagem(origem: OrigemImagem, deps: DependenciasI
     if (resultado.canceled) return null;
     if (resultado.assets.length !== 1) throw new ErroImagemNota("IMAGEM");
     const [asset] = resultado.assets;
-    if (!asset.uri || !/^file:\/\/\S+$/i.test(asset.uri) || asset.type !== "image" ||
+    const uriValida = web ? URI_BLOB.test(asset.uri ?? "") : /^file:\/\/\S+$/i.test(asset.uri ?? "");
+    if (!asset.uri || !uriValida || asset.type !== "image" ||
       !Number.isSafeInteger(asset.width) || asset.width <= 0 || !Number.isSafeInteger(asset.height) || asset.height <= 0) {
       throw new ErroImagemNota("IMAGEM");
+    }
+    if (web) {
+      // ImageManipulator é nativo: no web a foto segue como o blob escolhido (sem redimensionar).
+      return { uri: asset.uri, origemUri: asset.uri, name: "nota-fiscal.jpg", type: "image/jpeg", width: asset.width, height: asset.height };
     }
     const contexto = deps.manipular(asset.uri);
     const maior = Math.max(asset.width, asset.height);

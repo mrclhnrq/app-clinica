@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Image, Linking, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { Button } from "@/components/Button";
@@ -9,7 +9,7 @@ import { ScreenHeader } from "@/components/ScreenHeader";
 import { useToast } from "@/components/ToastProvider";
 import { colors, radius, spacing, typography } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { enviarUmaVez, validarIdNota, type ResultadoEnvio } from "@/services/fluxoNota";
+import { enviarUmaVez, type ResultadoEnvio } from "@/services/fluxoNota";
 import { descartarImagemTemporaria, ErroImagemNota, selecionarImagem, type ImagemNota, type OrigemImagem } from "@/services/notaFiscalImagem";
 import { enviarImagem } from "@/services/notaFiscalService";
 
@@ -36,7 +36,6 @@ export default function CapturaNota() {
 function CapturaAutorizada({ usuarioId }: { usuarioId: number }) {
   const { showToast } = useToast();
   const [imagem, setImagem] = useState<ImagemNota | null>(null);
-  const [idManual, setIdManual] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [incerto, setIncerto] = useState(false);
   const [limpezaPendente, setLimpezaPendente] = useState(false);
@@ -143,20 +142,6 @@ function CapturaAutorizada({ usuarioId }: { usuarioId: number }) {
     else if (controle.idAceito !== null) navegarParaNotaAceita();
   }
 
-  function consultarManualmente() {
-    if (trava.current || controle.idAceito !== null || !guarda.validaPara(usuarioId)) return;
-    const id = validarIdNota(idManual);
-    if (id === null) { showToast("Informe um ID válido da sua nota.", "error"); return; }
-    const apagada = controle.limparPreview();
-    setImagem(controle.imagem);
-    setLimpezaPendente(controle.pendente);
-    if (!apagada || controle.pendente) {
-      showToast("Não foi possível apagar a cópia temporária. Tente limpar novamente antes de consultar a nota.", "error");
-      return;
-    }
-    router.push(`/notas/${id}`);
-  }
-
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Importar nota fiscal" onBack={() => router.back()} />
@@ -169,7 +154,7 @@ function CapturaAutorizada({ usuarioId }: { usuarioId: number }) {
         {permissao && <Text accessibilityRole="alert" style={styles.warning}>Permissão de {permissao.origem === "camera" ? "câmera" : "fotos"} negada. {permissao.bloqueada ? "Habilite-a nos ajustes deste aplicativo e volte para tentar novamente." : "Permita o acesso quando solicitado; se não houver novo pedido, habilite-o nos ajustes do aplicativo."}</Text>}
         {permissao?.bloqueada && <Button title="Abrir ajustes do aplicativo" variant="secondary" disabled={ocupado} onPress={() => { void abrirAjustes(); }} />}
         {imagem && <Image source={{ uri: imagem.uri }} style={styles.preview} resizeMode="contain" accessibilityLabel="Prévia da nota selecionada" />}
-        {idAceito !== null && <Text accessibilityRole="alert" style={styles.text}>Nota #{idAceito} aceita pelo servidor. Não envie a imagem novamente. Se sair desta tela antes de abrir a nota, anote o número ou consulte-a depois pelo ID.</Text>}
+        {idAceito !== null && <Text accessibilityRole="alert" style={styles.text}>Nota #{idAceito} aceita pelo servidor. Não envie a imagem novamente. Se sair desta tela antes de abrir a nota, anote o número.</Text>}
         {idAceito !== null && !limpezaPendente && <Button title={`Abrir nota #${idAceito}`} disabled={ocupado} onPress={() => navegarParaNotaAceita()} />}
         {limpezaPendente && <><Text accessibilityRole="alert" style={styles.warning}>Uma cópia temporária não foi apagada. Não selecione nem envie outra imagem antes de tentar limpar novamente.</Text>
           <Button title="Tentar apagar cópia temporária" variant="secondary" disabled={ocupado} onPress={tentarLimpar} /></>}
@@ -180,9 +165,6 @@ function CapturaAutorizada({ usuarioId }: { usuarioId: number }) {
           onConfirm={() => { setConfirmarPendencia(false); navegarParaNotaAceita(true); }} />
         <Button title="Enviar imagem" loading={ocupado} disabled={!imagem || incerto || limpezaPendente || idAceito !== null} onPress={() => void enviar()} />
         {incerto && <Text style={styles.warning}>A resposta do envio não foi confirmada. Consulte a nota pelo ID antes de decidir se deseja enviar novamente. Escolher outra imagem exige uma nova ação explícita.</Text>}
-        <Text style={styles.text}>Já tem um ID de nota? Consulte o andamento da sua nota sem reenviar a imagem.</Text>
-        <TextInput style={styles.input} value={idManual} onChangeText={setIdManual} keyboardType="number-pad" placeholder="ID da nota" accessibilityLabel="ID da nota" maxLength={16} />
-        <Button title="Consultar ID" variant="secondary" disabled={ocupado || idAceito !== null} onPress={consultarManualmente} />
       </ScrollView>
     </View>
   );
@@ -195,5 +177,4 @@ const styles = StyleSheet.create({
   text: { ...typography.body, color: colors.text },
   warning: { ...typography.body, color: colors.danger },
   preview: { height: 260, backgroundColor: colors.white, borderRadius: radius.sm },
-  input: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, borderRadius: radius.sm, padding: spacing.md, ...typography.body },
 });
