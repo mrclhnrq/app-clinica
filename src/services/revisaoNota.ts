@@ -33,6 +33,34 @@ export function nomeNovoValido(nome: string): boolean {
     });
 }
 
+export type RascunhoInicial = {
+  acao: "" | Escolha["acao"]; produtoId: number | null; nomeNovo: string; quantidade: string; valorUnitario: string;
+};
+
+function quantidadeSugerida(valor: number | null): string {
+  return valor !== null && Number.isInteger(valor) && valor > 0 ? String(valor) : "";
+}
+
+function custoSugerido(valor: number | null): string {
+  return valor !== null && valor > 0 ? valor.toFixed(2).replace(".", ",") : "";
+}
+
+/** Decisao inicial vinda da propria nota, para a usuaria so conferir e corrigir o que estiver errado. */
+export function rascunhoInicial(item: Item, produtos: ProdutoCatalogo[]): RascunhoInicial {
+  const base = { produtoId: null, nomeNovo: "", quantidade: "", valorUnitario: "" };
+  if (item.status !== "VALIDO") return { ...base, acao: "REJEITAR" };
+  const quantidade = quantidadeSugerida(item.quantidade);
+  const valorUnitario = custoSugerido(item.valorUnitario);
+  const sugerido = item.produtoSugerido;
+  if (sugerido && produtos.some((produto) => produto.id === sugerido.id)) {
+    // Confianca alta ja vem decidida. Nas demais a usuaria confirma com um toque, para nao somar ao produto errado.
+    if (item.confianca !== "ALTA") return { ...base, acao: "", quantidade, valorUnitario };
+    return { ...base, acao: "ASSOCIAR", produtoId: sugerido.id, quantidade, valorUnitario };
+  }
+  const nomeNovo = item.textoOriginal.trim().slice(0, LIMITE_NOME_NOVO_PRODUTO);
+  return { ...base, acao: "CRIAR_NOVO", nomeNovo, quantidade, valorUnitario };
+}
+
 function decidir(itemId: number, escolha: Escolha, produtos: ProdutoCatalogo[]): DecisaoItem {
   if (escolha.acao === "REJEITAR") {
     return { itemId, acao: "REJEITAR", produtoId: null, criarNovo: false, nomeNovo: null, quantidade: null, valorUnitario: null };

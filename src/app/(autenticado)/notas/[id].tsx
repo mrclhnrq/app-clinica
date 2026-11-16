@@ -3,6 +3,7 @@ import { AppState, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Button } from "@/components/Button";
 import { RevisaoNota } from "@/components/notas/RevisaoNota";
+import { textoFalhaNota } from "@/components/notas/mensagensNota";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { colors, spacing, typography } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -148,7 +149,7 @@ function ProcessoNotaAutorizado({ id, usuarioId }: { id: number; usuarioId: numb
                 atual.status === "FALHA" ? "Falha na leitura da nota" :
                   atual.status === "DESCARTADA" ? "Descartada" : "Confirmada"}</Text>}
             {atual?.status === "EM_REVISAO" && <RevisaoNota key={`${atual.notaId}:${rodada}:${versaoRevisao}`} nota={atual} onConfirmada={registrarConfirmacao} onEstado={registrarEstado} onConsultar={consultarNovamente} />}
-            {atual?.status === "FALHA" && <Text style={styles.warning}>Falha: {atual.codigoFalha}. Nenhum estoque foi alterado nesta tela.</Text>}
+            {atual?.status === "FALHA" && <Text style={styles.warning}>{textoFalhaNota(atual.codigoFalha)} Nenhum estoque foi alterado nesta tela.</Text>}
             {atual?.status === "CONFIRMADA" && <>
               <ResumoNota resumo={atual.resumoConfirmacao} />
               {(catalogoAtual === null || catalogoAtual === "sincronizando") && <Text style={styles.text}>Atualizando catálogo de produtos...</Text>}

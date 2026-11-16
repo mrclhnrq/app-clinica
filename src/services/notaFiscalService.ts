@@ -133,10 +133,21 @@ function caminho(id: number): string {
 }
 
 export async function enviarImagem(imagem: ImagemNota): Promise<UploadResposta> {
-  if (!imagem || !/^file:\/\/\S+$/i.test(imagem.uri) || imagem.name !== "nota-fiscal.jpg" || imagem.type !== "image/jpeg") throw new ErroNotaFiscal("ENTRADA");
-  const form = new FormData();
-  form.append("imagem", { uri: imagem.uri, name: imagem.name, type: imagem.type });
+  const nativa = /^file:\/\/\S+$/i.test(imagem?.uri ?? "");
+  const web = /^blob:\S+$/i.test(imagem?.uri ?? "");
+  if (!imagem || !(nativa || web) || imagem.name !== "nota-fiscal.jpg" || imagem.type !== "image/jpeg") throw new ErroNotaFiscal("ENTRADA");
   try {
+    const form = new FormData();
+    if (web) {
+      // No web o FormData não aceita descritor {uri}: enviamos o próprio arquivo (blob) escolhido.
+      const arquivo = await fetch(imagem.uri).then((r) => {
+        if (!r.ok) throw new Error("Falha ao ler a imagem selecionada");
+        return r.blob();
+      });
+      form.append("imagem", arquivo, imagem.name);
+    } else {
+      form.append("imagem", { uri: imagem.uri, name: imagem.name, type: imagem.type });
+    }
     const resposta = await api.post<unknown>(BASE, form, { timeout: UPLOAD_TIMEOUT, headers: { "Content-Type": "multipart/form-data" } });
     if (resposta.status !== 202) throw new ErroNotaFiscal("CONTRATO");
     return validar(resposta.data, uploadResposta);

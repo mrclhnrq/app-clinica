@@ -4,10 +4,12 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { Button } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LabeledInput } from "@/components/LabeledInput";
+import { textoAvisoNota, textoMotivoRejeicao } from "@/components/notas/mensagensNota";
 import { colors, radius, spacing, typography } from "@/constants/theme";
+import { produtosParaAssociar } from "@/services/buscaProduto";
 import { confirmarComConsulta, criarTrava, descartarComConsulta } from "@/services/confirmacaoNota";
 import { ErroNotaFiscal, listarProdutos } from "@/services/notaFiscalService";
-import { exigeCienciaExplicita, LIMITE_NOME_NOVO_PRODUTO, prepararRevisao, type Escolha } from "@/services/revisaoNota";
+import { exigeCienciaExplicita, LIMITE_NOME_NOVO_PRODUTO, prepararRevisao, rascunhoInicial, type Escolha } from "@/services/revisaoNota";
 import type { ConfirmarRequest, Item, NotaResposta, ProdutoCatalogo, ResumoConfirmacao } from "@/types/notaFiscal";
 
 type Rascunho = { acao: "" | Escolha["acao"]; produtoId: number | null; nomeNovo: string; quantidade: string; valorUnitario: string };
@@ -33,27 +35,49 @@ function AcaoItem({ titulo, escolhida, onPress, disabled }: { titulo: string; es
   </Pressable>;
 }
 
-function ItemRevisao({ item, produtos, rascunho, alterar, ocupado }: {
-  item: Item; produtos: ProdutoCatalogo[]; rascunho: Rascunho; alterar: (proximo: Rascunho) => void; ocupado: boolean;
+function resumoDaDecisao(rascunho: Rascunho, produtos: ProdutoCatalogo[]): string {
+  if (rascunho.acao === "") return "Decisão pendente: confirme se é o mesmo produto.";
+  if (rascunho.acao === "REJEITAR") return "Este item será ignorado: não entra no estoque.";
+  const detalhe = `+${rascunho.quantidade || "?"} un · custo R$ ${rascunho.valorUnitario || "?"}`;
+  if (rascunho.acao === "CRIAR_NOVO") return `Vai cadastrar o produto “${rascunho.nomeNovo || "?"}” · ${detalhe}`;
+  const produto = produtos.find((p) => p.id === rascunho.produtoId);
+  return `Vai somar ao produto “${produto?.nome ?? "escolha um produto"}” · ${detalhe}`;
+}
+
+function ItemRevisao({ item, posicao, total, produtos, rascunho, alterar, ocupado }: {
+  item: Item; posicao: number; total: number; produtos: ProdutoCatalogo[]; rascunho: Rascunho; alterar: (proximo: Rascunho) => void; ocupado: boolean;
 }) {
+  const [editando, setEditando] = useState(false);
+  const [busca, setBusca] = useState("");
+  const visiveis = produtosParaAssociar(produtos, busca, item.textoOriginal, rascunho.produtoId);
+  const completo = escolhaDo(rascunho) !== null && (rascunho.acao === "REJEITAR" || (rascunho.quantidade !== "" && rascunho.valorUnitario !== "" && (rascunho.acao !== "CRIAR_NOVO" || rascunho.nomeNovo.trim() !== "")));
+  const mostrarCampos = editando || !completo;
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Item #{item.itemId}: {item.textoOriginal}</Text>
-      <Text style={styles.text}>Estado: {item.status} · Confiança: {item.confianca ?? "não informada"}</Text>
-      {item.motivoRejeicao && <Text style={styles.warning}>Motivo: {item.motivoRejeicao.codigo} — {item.motivoRejeicao.texto}</Text>}
-      <Text style={styles.text}>Extraído: {item.quantidade ?? "—"} un · custo {item.valorUnitario ?? "—"} · total {item.valorTotal ?? "—"}</Text>
-      <Text style={styles.text}>Sugestão (não selecionada): {item.produtoSugerido?.nome ?? "nenhuma"}</Text>
-      <View style={styles.row}>
-        <AcaoItem titulo={`Associar item ${item.itemId}`} escolhida={rascunho.acao === "ASSOCIAR"} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "ASSOCIAR", produtoId: null })} />
-        <AcaoItem titulo={`Criar novo para item ${item.itemId}`} escolhida={rascunho.acao === "CRIAR_NOVO"} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "CRIAR_NOVO", produtoId: null })} />
-        <AcaoItem titulo={`Rejeitar item ${item.itemId}`} escolhida={rascunho.acao === "REJEITAR"} disabled={ocupado} onPress={() => alterar({ ...vazio, acao: "REJEITAR" })} />
-      </View>
-      <Text style={styles.text}>Ação escolhida: {rascunho.acao || "nenhuma"}</Text>
-      {rascunho.acao === "ASSOCIAR" && (
+      <Text style={styles.title}>Item {posicao} de {total}: {item.textoOriginal}</Text>
+      {item.status !== "VALIDO" && item.motivoRejeicao && <Text style={styles.warning}>{textoMotivoRejeicao(item.motivoRejeicao.codigo)}</Text>}
+      <Text style={styles.text}>{resumoDaDecisao(rascunho, produtos)}</Text>
+      {rascunho.acao === "" && item.produtoSugerido && item.status === "VALIDO" && (
+        <View style={styles.pergunta}>
+          <Text style={styles.title}>É o mesmo produto: {item.produtoSugerido.nome}?</Text>
+          <View style={styles.row}>
+            <AcaoItem titulo="Sim, somar" escolhida={false} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "ASSOCIAR", produtoId: item.produtoSugerido?.id ?? null })} />
+            <AcaoItem titulo="Não, cadastrar novo" escolhida={false} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "CRIAR_NOVO", produtoId: null, nomeNovo: item.textoOriginal.trim().slice(0, LIMITE_NOME_NOVO_PRODUTO) })} />
+          </View>
+        </View>
+      )}
+      {!mostrarCampos && <Button title="Alterar este item" variant="secondary" disabled={ocupado} onPress={() => setEditando(true)} />}
+      {mostrarCampos && <View style={styles.row}>
+        <AcaoItem titulo="Somar a produto existente" escolhida={rascunho.acao === "ASSOCIAR"} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "ASSOCIAR", produtoId: rascunho.produtoId ?? item.produtoSugerido?.id ?? null })} />
+        <AcaoItem titulo="Cadastrar como novo" escolhida={rascunho.acao === "CRIAR_NOVO"} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "CRIAR_NOVO", produtoId: null, nomeNovo: rascunho.nomeNovo || item.textoOriginal.trim().slice(0, LIMITE_NOME_NOVO_PRODUTO) })} />
+        <AcaoItem titulo="Ignorar este item" escolhida={rascunho.acao === "REJEITAR"} disabled={ocupado} onPress={() => alterar({ ...rascunho, acao: "REJEITAR" })} />
+      </View>}
+      {mostrarCampos && rascunho.acao === "ASSOCIAR" && (
         <View>
-          <Text style={styles.text}>Selecione manualmente um produto ativo desta conta:</Text>
+          <LabeledInput label="Buscar produto pelo nome" accessibilityLabel={`Buscar produto, item ${item.itemId}`} editable={!ocupado} value={busca} onChangeText={setBusca} />
           {produtos.length === 0 && <Text style={styles.warning}>Nenhum produto disponível.</Text>}
-          {produtos.map((produto) => (
+          {produtos.length > 0 && visiveis.length === 0 && <Text style={styles.text}>Nenhum produto encontrado para “{busca}”.</Text>}
+          {visiveis.map((produto) => (
             <Pressable key={produto.id} accessibilityRole="radio" accessibilityLabel={`${produto.nome}, produto ${produto.id}, item ${item.itemId}`}
               accessibilityState={{ checked: rascunho.produtoId === produto.id, disabled: ocupado }} disabled={ocupado}
               onPress={() => alterar({ ...rascunho, produtoId: produto.id })} style={styles.option}>
@@ -62,8 +86,8 @@ function ItemRevisao({ item, produtos, rascunho, alterar, ocupado }: {
           ))}
         </View>
       )}
-      {rascunho.acao === "CRIAR_NOVO" && <LabeledInput label="Nome do novo produto" accessibilityLabel={`Nome do novo produto, item ${item.itemId}`} editable={!ocupado} value={rascunho.nomeNovo} onChangeText={(nomeNovo) => alterar({ ...rascunho, nomeNovo })} maxLength={LIMITE_NOME_NOVO_PRODUTO} />}
-      {(rascunho.acao === "ASSOCIAR" || rascunho.acao === "CRIAR_NOVO") && (
+      {mostrarCampos && rascunho.acao === "CRIAR_NOVO" && <LabeledInput label="Nome do novo produto" accessibilityLabel={`Nome do novo produto, item ${item.itemId}`} editable={!ocupado} value={rascunho.nomeNovo} onChangeText={(nomeNovo) => alterar({ ...rascunho, nomeNovo })} maxLength={LIMITE_NOME_NOVO_PRODUTO} />}
+      {mostrarCampos && (rascunho.acao === "ASSOCIAR" || rascunho.acao === "CRIAR_NOVO") && (
         <View>
           <LabeledInput label="Quantidade inteira (confirme ou corrija)" accessibilityLabel={`Quantidade inteira, item ${item.itemId}`} editable={!ocupado} keyboardType="number-pad" value={rascunho.quantidade} onChangeText={(quantidade) => alterar({ ...rascunho, quantidade })} />
           <LabeledInput label="Custo unitário (R$, ex.: 12,30)" accessibilityLabel={`Custo unitário em reais, item ${item.itemId}`} editable={!ocupado} keyboardType="decimal-pad" value={rascunho.valorUnitario} onChangeText={(valorUnitario) => alterar({ ...rascunho, valorUnitario })} />
@@ -94,12 +118,16 @@ export function RevisaoNota({ nota, onConfirmada, onEstado, onConsultar }: {
     return () => { ativo = false; };
   }, [nota.notaId]);
 
+  function rascunhoDe(item: Item): Rascunho {
+    return rascunhos[item.itemId] ?? (produtos ? rascunhoInicial(item, produtos) : vazio);
+  }
+
   function conferir() {
     if (incerto) return;
     if (!produtos) { setResultado("Carregue o catálogo antes de conferir as decisões."); return; }
     const escolhas: Record<number, Escolha> = {};
     for (const item of nota.itens) {
-      const escolha = escolhaDo(rascunhos[item.itemId] ?? vazio);
+      const escolha = escolhaDo(rascunhoDe(item));
       if (escolha) escolhas[item.itemId] = escolha;
     }
     try {
@@ -162,15 +190,15 @@ export function RevisaoNota({ nota, onConfirmada, onEstado, onConsultar }: {
       <Text style={styles.title}>Revisão manual — nota #{nota.notaId}</Text>
       <Text style={styles.text}>Fornecedor: {nota.fornecedor?.razaoSocial ?? "não informado"} · CNPJ: {nota.fornecedor?.cnpj ?? "não informado"}</Text>
       <Text style={styles.text}>Emissão: {nota.dataEmissao ?? "não informada"} · Total: {nota.totalNota === null ? "não informado" : `R$ ${nota.totalNota.toFixed(2).replace(".", ",")}`}</Text>
-      {nota.avisos.map((aviso, indice) => <Text key={indice} style={styles.warning}>Aviso: {aviso}</Text>)}
+      {nota.avisos.map((aviso, indice) => <Text key={indice} style={styles.warning}>Aviso: {textoAvisoNota(aviso)}</Text>)}
       {erroCatalogo && <Text style={styles.warning}>{erroCatalogo}</Text>}
       {!produtos && !erroCatalogo && <Text style={styles.text}>Carregando produtos da conta...</Text>}
       {erroCatalogo && <Button title="Tentar carregar novamente" variant="secondary" onPress={() => {
         setErroCatalogo(null);
         listarProdutos().then(setProdutos).catch(() => setErroCatalogo("Não foi possível carregar produtos desta conta. Tente novamente."));
       }} />}
-      {nota.itens.map((item) => <ItemRevisao key={item.itemId} item={item} produtos={produtos ?? []} ocupado={ocupado}
-        rascunho={rascunhos[item.itemId] ?? vazio} alterar={(proximo) => {
+      {nota.itens.map((item, indice) => <ItemRevisao key={item.itemId} item={item} posicao={indice + 1} total={nota.itens.length} produtos={produtos ?? []} ocupado={ocupado}
+        rascunho={rascunhoDe(item)} alterar={(proximo) => {
           if (trava.current.ocupado) return;
           setResultado(null);
           setPedido(null);
@@ -208,5 +236,6 @@ const styles = StyleSheet.create({
   acao: { flexGrow: 1, minHeight: 44, alignItems: "center", justifyContent: "center", padding: spacing.sm, backgroundColor: colors.primaryLight, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: radius.sm },
   acaoEscolhida: { borderColor: colors.primary, borderWidth: 2 },
   acaoTexto: { ...typography.body, color: colors.text },
+  pergunta: { gap: spacing.sm, padding: spacing.sm, backgroundColor: colors.primaryLight, borderRadius: radius.sm },
   option: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderColor: colors.borderLight },
 });
