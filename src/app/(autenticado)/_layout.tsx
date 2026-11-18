@@ -19,6 +19,9 @@ export default function AutenticadoLayout() {
         <CombosProvider>
           <ClientesProvider>
             <Tabs
+              // volta para a tela anterior (ex.: Lembrete de Horário → Lembretes, Nota → Produtos)
+              // em vez de sempre cair na Home, que é o padrão do Tabs ("firstRoute")
+              backBehavior="history"
               screenOptions={{
                 headerShown: false,
                 tabBarActiveTintColor: colors.primary,

@@ -43,7 +43,9 @@ function validate(v: FormState): FormErrors {
   if (!v.categoria.trim()) errors.categoria = "Informe a categoria";
   if (!/^\d+$/.test(v.estoque.trim())) errors.estoque = "Informe a quantidade";
   if (!/\d/.test(v.valorCusto)) errors.valorCusto = "Informe o valor de custo";
+  else if (parseCurrency(v.valorCusto) <= 0) errors.valorCusto = "O valor deve ser maior que zero";
   if (!/\d/.test(v.valorVenda)) errors.valorVenda = "Informe o valor de venda";
+  else if (parseCurrency(v.valorVenda) <= 0) errors.valorVenda = "O valor deve ser maior que zero";
   return errors;
 }
 

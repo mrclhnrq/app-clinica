@@ -24,7 +24,6 @@ export default function ServicosListagem() {
           tag={<StatusTag ativo={s.ativo} />}
           dimmed={!s.ativo}
           details={[
-            { label: "Custo:", value: formatCurrency(s.valorCusto) },
             { label: "Venda:", value: formatCurrency(s.valorVenda), highlight: true },
           ]}
           onPress={() => router.push(`/servicos/${s.id}`)}

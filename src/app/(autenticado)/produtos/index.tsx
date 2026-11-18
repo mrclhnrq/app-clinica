@@ -37,7 +37,6 @@ export default function ProdutosListagem() {
             alert={emAlerta}
             dimmed={!p.ativo}
             details={[
-              { label: "Custo:", value: formatCurrency(p.valorCusto) },
               { label: "Venda:", value: p.valorVenda === null ? "Cadastro incompleto" : formatCurrency(p.valorVenda), highlight: true },
             ]}
             onPress={() => router.push(`/produtos/${p.id}`)}
