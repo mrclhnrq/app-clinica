@@ -34,7 +34,9 @@ function validate(v: FormState): FormErrors {
   if (!v.nome.trim()) errors.nome = "Informe o nome do serviço";
   if (!v.descricao.trim()) errors.descricao = "Informe a descrição";
   if (!/\d/.test(v.valorCusto)) errors.valorCusto = "Informe o custo/despesa";
+  else if (parseCurrency(v.valorCusto) <= 0) errors.valorCusto = "O valor deve ser maior que zero";
   if (!/\d/.test(v.valorVenda)) errors.valorVenda = "Informe o valor de venda";
+  else if (parseCurrency(v.valorVenda) <= 0) errors.valorVenda = "O valor deve ser maior que zero";
   return errors;
 }
 
